@@ -2,11 +2,24 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';
-import * as fs from 'fs';
+import { promises as fs } from 'fs';  // Node.jsのPromise版fsモジュールを使う
+
+/**
+ * execの非同期ラッパー関数
+ * コマンドを非同期実行し、結果をPromiseで返す
+ */
+function execGlobalAsync(command: string, cwd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    cp.exec(command, { cwd }, (error, stdout, stderr) => {
+      if (error) reject(error);
+      else resolve(stdout);
+    });
+  });
+}
 
 export function activate(context: vscode.ExtensionContext) {
   // ジャンプ履歴を保持（戻る機能用）
-  const jumpHistory: { uri: vscode.Uri, position: vscode.Position, viewColumn: vscode.ViewColumn | undefined }[] = [];
+  const jumpHistory: { uri: vscode.Uri; position: vscode.Position; viewColumn: vscode.ViewColumn | undefined }[] = [];
 
   /**
    * 定義ジャンプコマンド
@@ -23,7 +36,7 @@ export function activate(context: vscode.ExtensionContext) {
     const document = editor.document;
     const position = editor.selection.active;
 
-    // 選択中の単語（シンボル）を取得
+    // カーソル下の単語（シンボル）を取得
     const wordRange = document.getWordRangeAtPosition(position);
     if (!wordRange) {
       vscode.window.showErrorMessage('No symbol selected');
@@ -46,27 +59,27 @@ export function activate(context: vscode.ExtensionContext) {
 
     let globalResult = '';
     try {
-      // プログレス表示しつつglobalコマンドで定義を検索
+      // プログレス表示しつつglobalコマンドで定義を非同期検索
       const elapsedMs = await vscode.window.withProgress({
         location: vscode.ProgressLocation.Window,
         title: `Searching for "${symbol}"...`,
         cancellable: false
-      }, () => {
+      }, async () => {
         const startTime = Date.now();
-        globalResult = cp.execSync(`global -xa ${symbol}`, { cwd: rootPath }).toString();
+        globalResult = await execGlobalAsync(`global -xa ${symbol}`, rootPath);
         const endTime = Date.now();
-        return Promise.resolve(endTime - startTime);
+        return endTime - startTime;
       });
 
-      // 結果の行を分割して空行を除外
+      // 結果の行を分割し、空行を除外
       const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
       if (lines.length === 0) {
         vscode.window.showInformationMessage(`No definition found for: ${symbol}`);
         return;
       }
 
-      // 候補アイテムの作成
-      const itemsRaw = lines.map(line => {
+      // ファイル読み込みも非同期でまとめて実行し、候補アイテムを作成
+      const itemsRaw = await Promise.all(lines.map(async (line) => {
         // globalの行形式を正規表現でパース
         const m = line.trim().match(/^(\S+)\s+(\d+)\s+(\S+)/);
         if (!m) return null;
@@ -77,17 +90,13 @@ export function activate(context: vscode.ExtensionContext) {
         if (/^\d+$/.test(file)) return null;
 
         // ファイルの相対パスを計算
-        const relPath = path.isAbsolute(file)
-          ? path.relative(rootPath, file)
-          : file;
+        const relPath = path.isAbsolute(file) ? path.relative(rootPath, file) : file;
 
-        // ファイルの該当行テキストを取得（読み込み失敗時はメッセージ）
+        // 該当行テキストを非同期で取得（失敗時はメッセージ）
         let lineContent = '';
         try {
-          const fileContent = fs.readFileSync(
-            path.isAbsolute(file) ? file : path.join(rootPath, file),
-            'utf8'
-          );
+          const filePath = path.isAbsolute(file) ? file : path.join(rootPath, file);
+          const fileContent = await fs.readFile(filePath, 'utf8');
           const fileLines = fileContent.split(/\r?\n/);
           lineContent = fileLines[lineNum]?.trim() ?? '';
         } catch {
@@ -100,21 +109,23 @@ export function activate(context: vscode.ExtensionContext) {
           file,
           line: lineNum
         };
-      }).filter((v): v is NonNullable<typeof v> => v !== null);
+      }));
 
-      // 候補が1件なら直接ジャンプ
-      if (itemsRaw.length === 1) {
-        await openFileAtPosition(itemsRaw[0], rootPath);
+      // null除去
+      const filteredItems = itemsRaw.filter((v): v is NonNullable<typeof v> => v !== null);
 
-      // 複数件なら選択肢＋「すべて開く」オプションを表示
+      if (filteredItems.length === 1) {
+        // 候補が1件なら直接ジャンプ
+        await openFileAtPosition(filteredItems[0], rootPath);
       } else {
+        // 複数候補なら選択肢＋「すべて開く」オプションを表示
         const allOpenOption = {
           label: 'Open All Definitions',
           description: '',
           file: '__all__',
           line: -1
         };
-        const itemsWithAll = [...itemsRaw, allOpenOption];
+        const itemsWithAll = [...filteredItems, allOpenOption];
 
         const picked = await vscode.window.showQuickPick(itemsWithAll, {
           placeHolder: `Select definition of ${symbol}`
@@ -124,7 +135,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (picked.file === '__all__') {
           // ファイルごとに最小の行番号を探して順に開く
           const fileMap = new Map<string, number>();
-          for (const item of itemsRaw) {
+          for (const item of filteredItems) {
             const prevLine = fileMap.get(item.file);
             if (prevLine === undefined || item.line < prevLine) {
               fileMap.set(item.file, item.line);
@@ -139,7 +150,6 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       vscode.window.showInformationMessage(`Search took ${elapsedMs} ms`);
-
     } catch (err) {
       vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
     }
@@ -153,15 +163,14 @@ export function activate(context: vscode.ExtensionContext) {
   async function openFileAtPosition(item: { file: string; line: number }, rootPath: string) {
     const filePath = path.isAbsolute(item.file) ? item.file : path.join(rootPath, item.file);
     const doc = await vscode.workspace.openTextDocument(filePath);
-    await vscode.window.showTextDocument(doc, {
+    const editor = await vscode.window.showTextDocument(doc, {
       viewColumn: vscode.ViewColumn.Two,
       preserveFocus: false,
       preview: false
-    }).then(editor2 => {
-      const pos = new vscode.Position(item.line, 0);
-      editor2.selection = new vscode.Selection(pos, pos);
-      editor2.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
     });
+    const pos = new vscode.Position(item.line, 0);
+    editor.selection = new vscode.Selection(pos, pos);
+    editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
   }
 
   /**
@@ -180,12 +189,14 @@ export function activate(context: vscode.ExtensionContext) {
       preview: false
     });
     editor.selection = new vscode.Selection(last.position, last.position);
+    // ジャンプ先を画面中央に表示したい場合は下記コメントを解除してください
     // editor.revealRange(new vscode.Range(last.position, last.position), vscode.TextEditorRevealType.InCenter);
   });
 
   /**
    * 参照検索コマンド
-   * カーソル下のシンボルの参照箇所をglobalで検索し、QuickPickで選択してジャンプ
+   * カーソル下のシンボルの参照箇所をglobalで非同期検索し、
+   * QuickPickで選択してジャンプ
    */
   const jumpToReferences = vscode.commands.registerCommand('gtags-hopper.jumpToReferences', async () => {
     const editor = vscode.window.activeTextEditor;
@@ -212,7 +223,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     let globalResult = '';
     try {
-      globalResult = cp.execSync(`global -rx ${symbol}`, { cwd: rootPath }).toString();
+      // execSyncから非同期execに置き換え済み
+      globalResult = await execGlobalAsync(`global -rx ${symbol}`, rootPath);
     } catch (err) {
       vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
       return;
@@ -284,11 +296,10 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     try {
-      // globalコマンドでファイルのタグ一覧を取得
-      const globalResult = cp.execSync(`global -f ${filePath}`, { cwd: rootPath }).toString();
+      // globalコマンドでファイルのタグ一覧を非同期取得
+      const globalResult = await execGlobalAsync(`global -f ${filePath}`, rootPath);
 
       // 行ごとに分割・整形して表示用文字列作成
-      const header = '--list symbol--';
       const lines = globalResult
         .trim()
         .split('\n')
@@ -309,7 +320,7 @@ export function activate(context: vscode.ExtensionContext) {
       // ターミナルの既存インスタンスを取得 or 新規作成
       let terminal = vscode.window.terminals.find(t => t.name === 'Gtags Output');
       if (!terminal) {
-          terminal = vscode.window.createTerminal({ name: 'Gtags Output', cwd: rootPath });
+        terminal = vscode.window.createTerminal({ name: 'Gtags Output', cwd: rootPath });
       }
       terminal.show(true);
 
