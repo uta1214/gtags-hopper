@@ -1,0 +1,124 @@
+{
+  "name": "gtags-hopper",
+  "displayName": "Gtags Hopper",
+  "description": "Jump to definitions using GNU GLOBAL (gtags) and open them in the right editor column.",
+  "version": "0.0.1",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.56.0"
+  },
+  "activationEvents": [
+    "onCommand:gtags-hopper.jumpToDefinition",
+    "onCommand:gtags-hopper.jumpBack",
+    "onCommand:gtags-hopper.updateTags",
+    "onCommand:gtags-hopper.jumpToReferences",
+    "onCommand:gtags-hopper.listSymbolsInFile",
+    "onCommand:gtags-hopper.searchByGrep"
+  ],
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "tsc -p ./",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "typescript": "^4.9.5",
+    "@types/node": "^20.3.1",
+    "@types/vscode": "^1.56.0",
+    "vscode": "^1.1.37"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "gtags-hopper.jumpToDefinition",
+        "title": "Gtags Hopper: Jump to Definition"
+      },
+      {
+        "command": "gtags-hopper.jumpBack",
+        "title": "Gtags Hopper: Jump Back"
+      },
+      {
+        "command": "gtags-hopper.updateTags",
+        "title": "Gtags Hopper: Update Tags"
+      },
+      {
+        "command": "gtags-hopper.jumpToReferences",
+        "title": "Gtags Hopper: Jump to References"
+      },
+      {
+        "command": "gtags-hopper.listSymbolsInFile",
+        "title": "Gtags Hopper: List Symbols in File"
+      },
+      {
+        "command": "gtags-hopper.searchByGrep",
+        "title": "Gtags Hopper: Search by Grep (Regex)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "gtags-hopper.jumpToDefinition",
+        "key": "ctrl+alt+oem_6",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "gtags-hopper.jumpBack",
+        "key": "ctrl+alt+oem_4",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "gtags-hopper.jumpToReferences",
+        "key": "ctrl+alt+oem_1",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "gtags-hopper.listSymbolsInFile",
+        "key": "ctrl+alt+oem_3",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "gtags-hopper.updateTags",
+        "key": "ctrl+alt+t",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "gtags-hopper.searchByGrep",
+        "key": "ctrl+alt+oem_102",
+        "when": "editorTextFocus"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "gtags-hopper.jumpToDefinition",
+          "group": "aa_commands@0",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "gtags-hopper.jumpBack",
+          "group": "aa_commands@1",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "gtags-hopper.updateTags",
+          "group": "aa_commands@2",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "gtags-hopper.jumpToReferences",
+          "group": "aa_commands@3",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "gtags-hopper.listSymbolsInFile",
+          "group": "aa_commands@4",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "gtags-hopper.searchByGrep",
+          "group": "aa_commands@5",
+          "when": "editorTextFocus"
+        }
+      ]
+    }
+  }
+}
