@@ -17,9 +17,52 @@ function execGlobalAsync(command: string, cwd: string): Promise<string> {
   });
 }
 
+/**
+ * コマンド用ターミナル取得関数
+ * 設定に応じて新規作成 or 既存ターミナル利用
+ */
+function getTerminalForCommand(
+  commandName: 'updateTags' | 'listSymbolsInFile' | 'searchByGrep', 
+  rootPath: string
+): vscode.Terminal {
+  const config = vscode.workspace.getConfiguration('gtags-hopper');
+
+    // 新コード（個別 boolean）
+  let forceNew = false;
+  switch (commandName) {
+    case 'updateTags':
+      forceNew = config.get<boolean>('updateTagsTerminalNew', false);
+      break;
+    case 'listSymbolsInFile':
+      forceNew = config.get<boolean>('listSymbolsInFileTerminalNew', false);
+      break;
+    case 'searchByGrep':
+      forceNew = config.get<boolean>('searchByGrepTerminalNew', false);
+      break;
+  }
+
+  if (forceNew) {
+    // 常に新規ターミナルを作る
+    const terminalName = `${commandName}`;
+    const terminal = vscode.window.createTerminal({ name: terminalName, cwd: rootPath });
+    terminal.show(true);
+    return terminal;
+  } else {
+    // 既存ターミナルを使う、なければ作る
+    let terminal = vscode.window.activeTerminal ?? vscode.window.terminals[0];
+    if (!terminal) {
+      terminal = vscode.window.createTerminal({ cwd: rootPath, shellPath: 'bash' });
+    }
+    terminal.show(true);
+    return terminal;
+  }
+}
+
+// アクティブ関数の開始
 export function activate(context: vscode.ExtensionContext) {
   // ジャンプ履歴を保持（戻る機能用）
   const jumpHistory: { uri: vscode.Uri; position: vscode.Position; viewColumn: vscode.ViewColumn | undefined }[] = [];
+  const gtagsCmd = vscode.workspace.getConfiguration('gtags-hopper').get<string>('gtagsCommand', 'gtags');
 
   /**
    * 定義ジャンプコマンド
@@ -51,11 +94,18 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     // 現在の編集位置を履歴に保存（戻る用）
+    const config = vscode.workspace.getConfiguration('gtags-hopper');
+    const maxHistory = config.get<number>('maxHistory', 50);
+
     jumpHistory.push({
       uri: document.uri,
       position,
       viewColumn: editor.viewColumn
     });
+
+    if (jumpHistory.length > maxHistory) {
+      jumpHistory.shift(); // 一番古い履歴を削除
+    }
 
     let globalResult = '';
     try {
@@ -111,45 +161,51 @@ export function activate(context: vscode.ExtensionContext) {
         };
       }));
 
-      // null除去
-      const filteredItems = itemsRaw.filter((v): v is NonNullable<typeof v> => v !== null);
+    // null除去
+    const filteredItems = itemsRaw.filter((v): v is NonNullable<typeof v> => v !== null);
 
-      if (filteredItems.length === 1) {
-        // 候補が1件なら直接ジャンプ
-        await openFileAtPosition(filteredItems[0], rootPath);
-      } else {
-        // 複数候補なら選択肢＋「すべて開く」オプションを表示
-        const allOpenOption = {
-          label: 'Open All Definitions',
-          description: '',
-          file: '__all__',
-          line: -1
-        };
-        const itemsWithAll = [...filteredItems, allOpenOption];
+    // 設定受け取り
+    const multipleAction = vscode.workspace.getConfiguration('gtags-hopper').get<string>('multipleResultAction', 'quickPick');
 
-        const picked = await vscode.window.showQuickPick(itemsWithAll, {
-          placeHolder: `Select definition of ${symbol}`
-        });
-        if (!picked) return;
+    if (filteredItems.length === 1 || multipleAction === 'firstMatch') {
+      // 候補1件 または firstMatch指定なら最初にジャンプ
+      await openFileAtPosition(filteredItems[0], rootPath);
+    } else {
+      // QuickPickを表示
+      const allOpenOption = {
+        label: 'Open All Definitions',
+        description: '',
+        file: '__all__',
+        line: -1
+      };
+      const itemsWithAll = [...filteredItems, allOpenOption];
 
-        if (picked.file === '__all__') {
-          // ファイルごとに最小の行番号を探して順に開く
-          const fileMap = new Map<string, number>();
-          for (const item of filteredItems) {
-            const prevLine = fileMap.get(item.file);
-            if (prevLine === undefined || item.line < prevLine) {
-              fileMap.set(item.file, item.line);
-            }
+      const picked = await vscode.window.showQuickPick(itemsWithAll, {
+        placeHolder: `Select definition of ${symbol}`
+      });
+      if (!picked) return;
+
+      if (picked.file === '__all__') {
+        // 複数ファイルを順に開く
+        const fileMap = new Map<string, number>();
+        for (const item of filteredItems) {
+          const prevLine = fileMap.get(item.file);
+          if (prevLine === undefined || item.line < prevLine) {
+            fileMap.set(item.file, item.line);
           }
-          for (const [file, line] of fileMap.entries()) {
-            await openFileAtPosition({ file, line }, rootPath);
-          }
-        } else {
-          await openFileAtPosition(picked, rootPath);
         }
+        for (const [file, line] of fileMap.entries()) {
+          await openFileAtPosition({ file, line }, rootPath);
+        }
+      } else {
+        await openFileAtPosition(picked, rootPath);
       }
+    }
 
+    const showSearchTime = vscode.workspace.getConfiguration('gtags-hopper').get<boolean>('showSearchTime', false);
+    if (showSearchTime) {
       vscode.window.showInformationMessage(`Search took ${elapsedMs} ms`);
+    }
     } catch (err) {
       vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
     }
@@ -163,35 +219,83 @@ export function activate(context: vscode.ExtensionContext) {
   async function openFileAtPosition(item: { file: string; line: number }, rootPath: string) {
     const filePath = path.isAbsolute(item.file) ? item.file : path.join(rootPath, item.file);
     const doc = await vscode.workspace.openTextDocument(filePath);
+
+    // 設定値を取得
+    const viewColumnSetting = vscode.workspace.getConfiguration('gtags-hopper').get<string>('viewColumn', 'second');
+
+    let viewColumn: vscode.ViewColumn | undefined;
+    switch (viewColumnSetting) {
+      case 'active':
+        viewColumn = vscode.window.activeTextEditor?.viewColumn;
+        break;
+      case 'beside':
+        viewColumn = vscode.ViewColumn.Beside;
+        break;
+      case 'first':
+        viewColumn = vscode.ViewColumn.One;
+        break;
+      case 'second':
+        viewColumn = vscode.ViewColumn.Two;
+        break;
+      case 'third':
+        viewColumn = vscode.ViewColumn.Three;
+        break;
+      default:
+        viewColumn = vscode.window.activeTextEditor?.viewColumn;
+        break;
+    }
+
+    // 設定値取得
+    const usePreviewTab = vscode.workspace.getConfiguration('gtags-hopper').get<boolean>('usePreviewTab', false);
+
+    // showTextDocument に渡す
     const editor = await vscode.window.showTextDocument(doc, {
-      viewColumn: vscode.ViewColumn.Two,
+      viewColumn,
       preserveFocus: false,
-      preview: false
+      preview: usePreviewTab
     });
+
     const pos = new vscode.Position(item.line, 0);
     editor.selection = new vscode.Selection(pos, pos);
     editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+
+  // 下のやつをコメント外すなら、上の一行をコメントアウト
+  // const centerCursor = vscode.workspace.getConfiguration('gtags-hopper').get<boolean>('centerCursorAfterJump', false);
+
+  // // 設定に応じてカーソルを中央に表示
+  // editor.revealRange(
+  //   new vscode.Range(pos, pos),
+  //   centerCursor ? vscode.TextEditorRevealType.InCenter : vscode.TextEditorRevealType.Default
+  // );
   }
 
   /**
    * ジャンプ履歴から前の位置に戻るコマンド
    */
   const jumpBack = vscode.commands.registerCommand('gtags-hopper.jumpBack', async () => {
-    if (jumpHistory.length === 0) {
-      vscode.window.showInformationMessage('No jump history available.');
-      return;
-    }
+  if (jumpHistory.length === 0) {
+    vscode.window.showInformationMessage('No jump history available.');
+    return;
+  }
 
-    const last = jumpHistory.pop()!;
-    const doc = await vscode.workspace.openTextDocument(last.uri);
-    const editor = await vscode.window.showTextDocument(doc, {
-      viewColumn: last.viewColumn ?? vscode.ViewColumn.One,
-      preview: false
-    });
-    editor.selection = new vscode.Selection(last.position, last.position);
-    // ジャンプ先を画面中央に表示したい場合は下記コメントを解除してください
-    // editor.revealRange(new vscode.Range(last.position, last.position), vscode.TextEditorRevealType.InCenter);
+  const last = jumpHistory.pop()!;
+  const doc = await vscode.workspace.openTextDocument(last.uri);
+  const editor = await vscode.window.showTextDocument(doc, {
+    viewColumn: last.viewColumn ?? vscode.ViewColumn.One,
+    preview: false
   });
+
+  editor.selection = new vscode.Selection(last.position, last.position);
+
+  // 設定値を取得
+  const centerBack = vscode.workspace.getConfiguration('gtags-hopper').get<boolean>('centerCursorAfterJumpBack', false);
+
+  // 設定に応じて中央表示
+  if (centerBack) {
+    editor.revealRange(new vscode.Range(last.position, last.position), vscode.TextEditorRevealType.InCenter);
+  }
+});
+
 
   /**
    * 参照検索コマンド
@@ -317,15 +421,12 @@ export function activate(context: vscode.ExtensionContext) {
         .filter((v): v is string => v !== null)
         .join('\n');
 
-      // ターミナルの既存インスタンスを取得 or 新規作成
-      let terminal = vscode.window.terminals.find(t => t.name === 'Gtags Output');
-      if (!terminal) {
-        terminal = vscode.window.createTerminal({ name: 'Gtags Output', cwd: rootPath });
-      }
-      terminal.show(true);
+      let terminal = getTerminalForCommand('listSymbolsInFile', rootPath);
 
+      terminal.show(true);
       // 端末に出力（printfでヘッダー付き）
-      terminal.sendText(`printf "%s\\n%s\\n" "--list symbol--" "${lines.replace(/"/g, '\\"')}"`);
+      // terminal.sendText(`printf "%s\\n%s\\n" "--list symbol--" "${lines.replace(/"/g, '\\"')}"`);
+      terminal.sendText(`global -f "${filePath}"`);
 
     } catch (err) {
       vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
@@ -343,25 +444,29 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
+    // 現在の選択テキストを取得（空なら undefined）
+    const editor = vscode.window.activeTextEditor;
+    const selectedText = editor && !editor.selection.isEmpty
+      ? editor.document.getText(editor.selection)
+      : undefined;
+
     // 検索パターンを入力
     const pattern = await vscode.window.showInputBox({
       prompt: 'Please enter the regex pattern to search',
       placeHolder: 'e.g. ^foo.*bar$',
       ignoreFocusOut: true,
+      value: selectedText
     });
     if (!pattern) {
       return; // Cancel or empty input
     }
 
-    // ターミナル取得 or 作成
-    let terminal = vscode.window.terminals.find(t => t.name === 'Gtags Grep Search');
-    if (!terminal) {
-      terminal = vscode.window.createTerminal({ name: 'Gtags Grep Search', cwd: rootPath });
-    }
+    let terminal = getTerminalForCommand('searchByGrep', rootPath);
+
     terminal.show(true);
 
     // global grepコマンド実行（シンプルにシングルクォート囲み）
-    terminal.sendText(`echo --search pattern: '${pattern}'`);
+    // terminal.sendText(`echo --search pattern: '${pattern}'`);
     terminal.sendText(`global -gx '${pattern}'`);
   });
 
@@ -369,19 +474,23 @@ export function activate(context: vscode.ExtensionContext) {
    * gtagsデータベース更新コマンド
    * ターミナルで gtags を実行してタグを生成
    */
-  const updateTags = vscode.commands.registerCommand('gtags-hopper.updateTags', () => {
+  const updateTags = vscode.commands.registerCommand('gtags-hopper.updateTags', async () => {
     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!rootPath) {
       vscode.window.showErrorMessage('No workspace folder found');
       return;
     }
 
-    let terminal = vscode.window.terminals.find(t => t.name === 'Gtags Generate');
-    if (!terminal) {
-      terminal = vscode.window.createTerminal({ name: 'Gtags Generate', cwd: rootPath });
-    }
+    // 設定から gtags コマンドと追加引数を取得
+    const gtagsCmd = vscode.workspace.getConfiguration('gtags-hopper').get<string>('gtagsCommand', '') || 'gtags';
+    const gtagsArgs = vscode.workspace.getConfiguration('gtags-hopper').get<string>('gtagsArgs', '');
+
+    const terminal = getTerminalForCommand('updateTags', rootPath);
     terminal.show(true);
-    terminal.sendText('gtags');
+
+    // 設定に応じたコマンドを作成
+    const cmd = gtagsArgs ? `${gtagsCmd} ${gtagsArgs}` : gtagsCmd;
+    terminal.sendText(cmd);
   });
 
   // ステータスバーアイテムを作成（gtags更新コマンドを実行できるボタン）
