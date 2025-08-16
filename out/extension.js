@@ -63,9 +63,48 @@ function execGlobalAsync(command, cwd) {
         });
     });
 }
+/**
+ * コマンド用ターミナル取得関数
+ * 設定に応じて新規作成 or 既存ターミナル利用
+ */
+function getTerminalForCommand(commandName, rootPath) {
+    var _a;
+    const config = vscode.workspace.getConfiguration('gtags-hopper');
+    // 新コード（個別 boolean）
+    let forceNew = false;
+    switch (commandName) {
+        case 'updateTags':
+            forceNew = config.get('updateTagsTerminalNew', false);
+            break;
+        case 'listSymbolsInFile':
+            forceNew = config.get('listSymbolsInFileTerminalNew', false);
+            break;
+        case 'searchByGrep':
+            forceNew = config.get('searchByGrepTerminalNew', false);
+            break;
+    }
+    if (forceNew) {
+        // 常に新規ターミナルを作る
+        const terminalName = `${commandName}`;
+        const terminal = vscode.window.createTerminal({ name: terminalName, cwd: rootPath });
+        terminal.show(true);
+        return terminal;
+    }
+    else {
+        // 既存ターミナルを使う、なければ作る
+        let terminal = (_a = vscode.window.activeTerminal) !== null && _a !== void 0 ? _a : vscode.window.terminals[0];
+        if (!terminal) {
+            terminal = vscode.window.createTerminal({ cwd: rootPath, shellPath: 'bash' });
+        }
+        terminal.show(true);
+        return terminal;
+    }
+}
+// アクティブ関数の開始
 function activate(context) {
     // ジャンプ履歴を保持（戻る機能用）
     const jumpHistory = [];
+    const gtagsCmd = vscode.workspace.getConfiguration('gtags-hopper').get('gtagsCommand', 'gtags');
     /**
      * 定義ジャンプコマンド
      * カーソル下のシンボルの定義位置をgtags(global)で検索し、
@@ -93,11 +132,16 @@ function activate(context) {
             return;
         }
         // 現在の編集位置を履歴に保存（戻る用）
+        const config = vscode.workspace.getConfiguration('gtags-hopper');
+        const maxHistory = config.get('maxHistory', 50);
         jumpHistory.push({
             uri: document.uri,
             position,
             viewColumn: editor.viewColumn
         });
+        if (jumpHistory.length > maxHistory) {
+            jumpHistory.shift(); // 一番古い履歴を削除
+        }
         let globalResult = '';
         try {
             // プログレス表示しつつglobalコマンドで定義を非同期検索
@@ -151,12 +195,14 @@ function activate(context) {
             })));
             // null除去
             const filteredItems = itemsRaw.filter((v) => v !== null);
-            if (filteredItems.length === 1) {
-                // 候補が1件なら直接ジャンプ
+            // 設定受け取り
+            const multipleAction = vscode.workspace.getConfiguration('gtags-hopper').get('multipleResultAction', 'quickPick');
+            if (filteredItems.length === 1 || multipleAction === 'firstMatch') {
+                // 候補1件 または firstMatch指定なら最初にジャンプ
                 yield openFileAtPosition(filteredItems[0], rootPath);
             }
             else {
-                // 複数候補なら選択肢＋「すべて開く」オプションを表示
+                // QuickPickを表示
                 const allOpenOption = {
                     label: 'Open All Definitions',
                     description: '',
@@ -170,7 +216,7 @@ function activate(context) {
                 if (!picked)
                     return;
                 if (picked.file === '__all__') {
-                    // ファイルごとに最小の行番号を探して順に開く
+                    // 複数ファイルを順に開く
                     const fileMap = new Map();
                     for (const item of filteredItems) {
                         const prevLine = fileMap.get(item.file);
@@ -186,7 +232,10 @@ function activate(context) {
                     yield openFileAtPosition(picked, rootPath);
                 }
             }
-            vscode.window.showInformationMessage(`Search took ${elapsedMs} ms`);
+            const showSearchTime = vscode.workspace.getConfiguration('gtags-hopper').get('showSearchTime', false);
+            if (showSearchTime) {
+                vscode.window.showInformationMessage(`Search took ${elapsedMs} ms`);
+            }
         }
         catch (err) {
             vscode.window.showErrorMessage(`global error: ${err.message}`);
@@ -199,16 +248,50 @@ function activate(context) {
      */
     function openFileAtPosition(item, rootPath) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b;
             const filePath = path.isAbsolute(item.file) ? item.file : path.join(rootPath, item.file);
             const doc = yield vscode.workspace.openTextDocument(filePath);
+            // 設定値を取得
+            const viewColumnSetting = vscode.workspace.getConfiguration('gtags-hopper').get('viewColumn', 'second');
+            let viewColumn;
+            switch (viewColumnSetting) {
+                case 'active':
+                    viewColumn = (_a = vscode.window.activeTextEditor) === null || _a === void 0 ? void 0 : _a.viewColumn;
+                    break;
+                case 'beside':
+                    viewColumn = vscode.ViewColumn.Beside;
+                    break;
+                case 'first':
+                    viewColumn = vscode.ViewColumn.One;
+                    break;
+                case 'second':
+                    viewColumn = vscode.ViewColumn.Two;
+                    break;
+                case 'third':
+                    viewColumn = vscode.ViewColumn.Three;
+                    break;
+                default:
+                    viewColumn = (_b = vscode.window.activeTextEditor) === null || _b === void 0 ? void 0 : _b.viewColumn;
+                    break;
+            }
+            // 設定値取得
+            const usePreviewTab = vscode.workspace.getConfiguration('gtags-hopper').get('usePreviewTab', false);
+            // showTextDocument に渡す
             const editor = yield vscode.window.showTextDocument(doc, {
-                viewColumn: vscode.ViewColumn.Two,
+                viewColumn,
                 preserveFocus: false,
-                preview: false
+                preview: usePreviewTab
             });
             const pos = new vscode.Position(item.line, 0);
             editor.selection = new vscode.Selection(pos, pos);
             editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+            // 下のやつをコメント外すなら、上の一行をコメントアウト
+            // const centerCursor = vscode.workspace.getConfiguration('gtags-hopper').get<boolean>('centerCursorAfterJump', false);
+            // // 設定に応じてカーソルを中央に表示
+            // editor.revealRange(
+            //   new vscode.Range(pos, pos),
+            //   centerCursor ? vscode.TextEditorRevealType.InCenter : vscode.TextEditorRevealType.Default
+            // );
         });
     }
     /**
@@ -227,8 +310,12 @@ function activate(context) {
             preview: false
         });
         editor.selection = new vscode.Selection(last.position, last.position);
-        // ジャンプ先を画面中央に表示したい場合は下記コメントを解除してください
-        // editor.revealRange(new vscode.Range(last.position, last.position), vscode.TextEditorRevealType.InCenter);
+        // 設定値を取得
+        const centerBack = vscode.workspace.getConfiguration('gtags-hopper').get('centerCursorAfterJumpBack', false);
+        // 設定に応じて中央表示
+        if (centerBack) {
+            editor.revealRange(new vscode.Range(last.position, last.position), vscode.TextEditorRevealType.InCenter);
+        }
     }));
     /**
      * 参照検索コマンド
@@ -343,14 +430,11 @@ function activate(context) {
             })
                 .filter((v) => v !== null)
                 .join('\n');
-            // ターミナルの既存インスタンスを取得 or 新規作成
-            let terminal = vscode.window.terminals.find(t => t.name === 'Gtags Output');
-            if (!terminal) {
-                terminal = vscode.window.createTerminal({ name: 'Gtags Output', cwd: rootPath });
-            }
+            let terminal = getTerminalForCommand('listSymbolsInFile', rootPath);
             terminal.show(true);
             // 端末に出力（printfでヘッダー付き）
-            terminal.sendText(`printf "%s\\n%s\\n" "--list symbol--" "${lines.replace(/"/g, '\\"')}"`);
+            // terminal.sendText(`printf "%s\\n%s\\n" "--list symbol--" "${lines.replace(/"/g, '\\"')}"`);
+            terminal.sendText(`global -f "${filePath}"`);
         }
         catch (err) {
             vscode.window.showErrorMessage(`global error: ${err.message}`);
@@ -367,43 +451,47 @@ function activate(context) {
             vscode.window.showErrorMessage('No workspace folder found');
             return;
         }
+        // 現在の選択テキストを取得（空なら undefined）
+        const editor = vscode.window.activeTextEditor;
+        const selectedText = editor && !editor.selection.isEmpty
+            ? editor.document.getText(editor.selection)
+            : undefined;
         // 検索パターンを入力
         const pattern = yield vscode.window.showInputBox({
             prompt: 'Please enter the regex pattern to search',
             placeHolder: 'e.g. ^foo.*bar$',
             ignoreFocusOut: true,
+            value: selectedText
         });
         if (!pattern) {
             return; // Cancel or empty input
         }
-        // ターミナル取得 or 作成
-        let terminal = vscode.window.terminals.find(t => t.name === 'Gtags Grep Search');
-        if (!terminal) {
-            terminal = vscode.window.createTerminal({ name: 'Gtags Grep Search', cwd: rootPath });
-        }
+        let terminal = getTerminalForCommand('searchByGrep', rootPath);
         terminal.show(true);
         // global grepコマンド実行（シンプルにシングルクォート囲み）
-        terminal.sendText(`echo --search pattern: '${pattern}'`);
+        // terminal.sendText(`echo --search pattern: '${pattern}'`);
         terminal.sendText(`global -gx '${pattern}'`);
     }));
     /**
      * gtagsデータベース更新コマンド
      * ターミナルで gtags を実行してタグを生成
      */
-    const updateTags = vscode.commands.registerCommand('gtags-hopper.updateTags', () => {
+    const updateTags = vscode.commands.registerCommand('gtags-hopper.updateTags', () => __awaiter(this, void 0, void 0, function* () {
         var _a, _b;
         const rootPath = (_b = (_a = vscode.workspace.workspaceFolders) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.uri.fsPath;
         if (!rootPath) {
             vscode.window.showErrorMessage('No workspace folder found');
             return;
         }
-        let terminal = vscode.window.terminals.find(t => t.name === 'Gtags Generate');
-        if (!terminal) {
-            terminal = vscode.window.createTerminal({ name: 'Gtags Generate', cwd: rootPath });
-        }
+        // 設定から gtags コマンドと追加引数を取得
+        const gtagsCmd = vscode.workspace.getConfiguration('gtags-hopper').get('gtagsCommand', '') || 'gtags';
+        const gtagsArgs = vscode.workspace.getConfiguration('gtags-hopper').get('gtagsArgs', '');
+        const terminal = getTerminalForCommand('updateTags', rootPath);
         terminal.show(true);
-        terminal.sendText('gtags');
-    });
+        // 設定に応じたコマンドを作成
+        const cmd = gtagsArgs ? `${gtagsCmd} ${gtagsArgs}` : gtagsCmd;
+        terminal.sendText(cmd);
+    }));
     // ステータスバーアイテムを作成（gtags更新コマンドを実行できるボタン）
     const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.text = '$(sync) Update Gtags';
