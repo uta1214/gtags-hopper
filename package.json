@@ -8,12 +8,7 @@
     "vscode": "^1.56.0"
   },
   "activationEvents": [
-    "onCommand:gtags-hopper.jumpToDefinition",
-    "onCommand:gtags-hopper.jumpBack",
-    "onCommand:gtags-hopper.updateTags",
-    "onCommand:gtags-hopper.jumpToReferences",
-    "onCommand:gtags-hopper.listSymbolsInFile",
-    "onCommand:gtags-hopper.searchByGrep"
+    "*"
   ],
   "main": "./out/extension.js",
   "scripts": {
@@ -114,11 +109,6 @@
           "type": "string",
           "default": "",
           "description": "gtags 実行時の追加引数。例: --gtagslabel=ctags --verbose"
-        },
-        "gtags-hopper.centerCursorAfterJump": {
-          "type": "boolean",
-          "default": false,
-          "description": "× 定義ジャンプ後にカーソル位置をエディター中央に表示するかどうか。"
         },
         "gtags-hopper.centerCursorAfterJumpBack": {
           "type": "boolean",
