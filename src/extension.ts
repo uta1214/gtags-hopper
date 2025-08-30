@@ -2,7 +2,7 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';
-import { promises as fs } from 'fs';  // Node.jsのPromise版fsモジュールを使う
+import { promises as fs } from 'fs';
 
 // 正規表現のコンパイル最適化
 const GLOBAL_OUTPUT_REGEX = /^(\S+)\s+(\d+)\s+(\S+)\s+(.+)$/;
@@ -51,8 +51,9 @@ class EditorCache {
 }
 
 /**
- * 最適化された履歴管理クラス
- * shift()を使わずにindexベースで管理してO(1)操作を実現
+ * 履歴管理クラス
+ * 注意: 古い履歴項目は論理的に無効化されるが、メモリからは削除されない
+ * pop()は最後に追加された項目を削除し、push()は最大サイズを超えると古い項目を論理削除する
  */
 class OptimizedHistory<T> {
   private items: T[] = [];
@@ -86,153 +87,159 @@ class OptimizedHistory<T> {
 
 /**
  * 現在のカーソル位置を含む関数のスコープを特定する
+ * 複数行の関数定義と制御構文の除外に対応
  * @param document テキストドキュメント
  * @param position カーソル位置
  * @returns 関数の開始行と終了行 {start, end} または null
  */
-function getCurrentFunctionScope(document: vscode.TextDocument, position: vscode.Position): {start: number, end: number} | null {
+function getCurrentFunctionScope(
+  document: vscode.TextDocument,
+  position: vscode.Position
+): { start: number; end: number } | null {
   const lines = document.getText().split('\n');
   const currentLine = position.line;
-  
+
   let functionStart = -1;
   let functionEnd = -1;
   let braceLevel = 0;
   let inFunction = false;
-  
-  // 現在行より上を検索して関数開始を見つける
+
+  // 複数言語対応の関数定義パターン
+  const functionStartPatterns = [
+    /^\s*\w[\w\s\*]*\w+\s*\([^)]*\)\s*\{?\s*$/,  // C/C++ 関数
+    /^\s*\w[\w\s\*]*\w+\s*\([^)]*\)\s*$/,        // 関数宣言（{は次行）
+    /^\s*(public|private|protected|static)?\s*\w[\w\s\*]*\w+\s*\([^)]*\)\s*\{?\s*$/,  // C++/Java
+    /^\s*function\s+\w+\s*\([^)]*\)\s*\{?\s*$/,   // JavaScript
+    /^\s*def\s+\w+\s*\([^)]*\)\s*:\s*$/,          // Python
+  ];
+
+  // 1. 現在位置から上に向かって関数開始を探す
   for (let i = currentLine; i >= 0; i--) {
     const line = lines[i].trim();
     
-    // 関数定義っぽい行をチェック（簡易的なパターン）
-    const functionPattern = /^[^\/\*]*\b\w+\s*\([^)]*\)\s*\{?/;
-    const isFunction = functionPattern.test(line) && 
-                      !line.includes('if') && !line.includes('while') && 
-                      !line.includes('for') && !line.includes('switch');
+    // 制御構文を除外
+    if (/^(if|while|for|switch|else)\b/.test(line)) {
+      continue;
+    }
+
+    // 関数定義パターンをチェック
+    const isFunction = functionStartPatterns.some(pattern => pattern.test(line));
     
     if (isFunction) {
       functionStart = i;
       break;
     }
   }
-  
-  if (functionStart === -1) return null;
-  
-  // 関数の終了を見つける（ブレース matching）
+
+  if (functionStart === -1) {
+    // console.log('No function start found');
+    return null;
+  }
+
+  // 2. 関数開始から下に向かって対応する閉じ括弧を探す
   braceLevel = 0;
   for (let i = functionStart; i < lines.length; i++) {
     const line = lines[i];
-    
     for (const char of line) {
-      if (char === '{') braceLevel++;
+      if (char === '{') {
+        braceLevel++;
+        inFunction = true;
+      }
       if (char === '}') {
         braceLevel--;
-        if (braceLevel === 0 && i > functionStart) {
-          functionEnd = i;
-          break;
-        }
       }
     }
     
-    if (functionEnd !== -1) break;
+    // 関数内で括弧が閉じられたら終了
+    if (inFunction && braceLevel === 0) {
+      functionEnd = i;
+      break;
+    }
   }
-  
+
   if (functionEnd === -1) functionEnd = lines.length - 1;
-  
+
+  // console.log(`Function scope found: lines ${functionStart}-${functionEnd}`);
   return { start: functionStart, end: functionEnd };
 }
 
 /**
- * 指定範囲内でシンボルを検索し、定義らしい候補をフィルタリングして返す
+ * Vim の `gd` スタイルのシンプルな定義検索
+ * 最初に見つけた「定義らしきもの」を返す
  * @param symbol 検索対象シンボル
  * @param document ドキュメント
  * @param startLine 検索開始行（省略時は0）
  * @param endLine 検索終了行（省略時は最終行）
- * @returns 候補の配列
+ * @returns 最初に見つけた定義候補または null
  */
-function searchSymbolInRange(
+function findFirstDefinition(
   symbol: string, 
   document: vscode.TextDocument, 
   startLine: number = 0, 
   endLine: number = document.lineCount - 1
-): Array<{label: string, description: string, line: number, priority: number}> {
+): {line: number, description: string} | null {
   const lines = document.getText().split('\n');
-  const results: Array<{label: string, description: string, line: number, priority: number}> = [];
   
-  console.log(`[DEBUG] searchSymbolInRange: symbol="${symbol}", lines ${startLine}-${endLine}`);
+  // console.log(`[DEBUG] findFirstDefinition: symbol="${symbol}", lines ${startLine}-${endLine}`);
   
   for (let i = startLine; i <= Math.min(endLine, lines.length - 1); i++) {
     const line = lines[i];
     const trimmedLine = line.trim();
     
-    // コメント行をスキップ
-    if (trimmedLine.startsWith('//') || trimmedLine.startsWith('/*')) continue;
+    // コメント行や文字列リテラル内をスキップ
+    if (trimmedLine.startsWith('//') || 
+        trimmedLine.startsWith('/*') || 
+        trimmedLine.includes(`"${symbol}"`) || 
+        trimmedLine.includes(`'${symbol}'`)) {
+      continue;
+    }
     
     // シンボルが含まれているかチェック
     if (!new RegExp(`\\b${symbol}\\b`).test(line)) continue;
     
-    console.log(`[DEBUG] Found symbol on line ${i + 1}: "${line.trim()}"`);
+    // console.log(`[DEBUG] Found symbol on line ${i + 1}: "${line.trim()}"`);
     
-    let priority = 100; // デフォルト優先度（非常に低い）
+    // Vim gd スタイル: 最初に見つけた定義らしいパターンを即座に返す
     
-    // 関数パラメータ定義パターン（最優先）
+    // 1. 変数宣言 (最優先)
+    if (new RegExp(`\\b(int|char|float|double|void|string|auto|const|let|var|bool|size_t|struct|class|enum)\\s+[^=]*\\b${symbol}\\b`).test(line)) {
+      // console.log(`[DEBUG] Line ${i + 1}: Variable declaration found`);
+      return {line: i, description: line.trim()};
+    }
+    
+    // 2. 関数パラメータ
     if (new RegExp(`\\b\\w+\\s+${symbol}\\s*[,)]`).test(line)) {
-      priority = 1;
-      console.log(`[DEBUG] Line ${i + 1}: Parameter definition (priority 1)`);
-    }
-    // 変数宣言
-    else if (new RegExp(`\\b(int|char|float|double|void|string|auto|const|let|var|bool|size_t)\\s+[^=]*\\b${symbol}\\b`).test(line)) {
-      priority = 2;
-      console.log(`[DEBUG] Line ${i + 1}: Variable declaration (priority 2)`);
-    }
-    // for文のループ変数
-    else if (new RegExp(`for\\s*\\([^;]*\\b${symbol}\\b`).test(line)) {
-      priority = 2;
-      console.log(`[DEBUG] Line ${i + 1}: Loop variable (priority 2)`);
-    }
-    // 代入
-    else if (new RegExp(`\\b${symbol}\\s*=`).test(line)) {
-      priority = 5;
-      console.log(`[DEBUG] Line ${i + 1}: Assignment (priority 5)`);
-    }
-    // 関数定義
-    else if (new RegExp(`\\b${symbol}\\s*\\(`).test(line)) {
-      priority = 3;
-      console.log(`[DEBUG] Line ${i + 1}: Function definition (priority 3)`);
-    }
-    // 使用箇所（printf, return など）
-    else if (line.includes('printf') || line.includes('scanf') || line.includes('return') || line.includes('cout')) {
-      priority = 50;
-      console.log(`[DEBUG] Line ${i + 1}: Usage in function call (priority 50)`);
-    }
-    else {
-      console.log(`[DEBUG] Line ${i + 1}: Other usage (priority 100)`);
+      // console.log(`[DEBUG] Line ${i + 1}: Parameter definition found`);
+      return {line: i, description: line.trim()};
     }
     
-    results.push({
-      label: `Line ${i + 1}`,
-      description: line.trim(),
-      line: i,
-      priority: priority
-    });
+    // 3. ループ変数
+    if (new RegExp(`for\\s*\\([^;]*\\b${symbol}\\b`).test(line)) {
+      // console.log(`[DEBUG] Line ${i + 1}: Loop variable found`);
+      return {line: i, description: line.trim()};
+    }
+    
+    // 4. 関数定義
+    if (new RegExp(`\\b${symbol}\\s*\\(`).test(line) && 
+        !line.includes('printf') && !line.includes('scanf') && !line.includes('cout')) {
+      // console.log(`[DEBUG] Line ${i + 1}: Function definition found`);
+      return {line: i, description: line.trim()};
+    }
+    
+    // 5. 代入（初回のみ）
+    if (new RegExp(`\\b${symbol}\\s*=`).test(line) && !line.includes('==')) {
+      // console.log(`[DEBUG] Line ${i + 1}: Assignment found`);
+      return {line: i, description: line.trim()};
+    }
   }
   
-  // 優先度順にソート（数値が小さいほど高優先度）
-  const sorted = results.sort((a, b) => a.priority - b.priority);
-  console.log(`[DEBUG] Sorted results:`, sorted);
-  
-  // 最高優先度のもののみを返す（同じ優先度が複数ある場合は全て返す）
-  if (sorted.length === 0) return sorted;
-  
-  const bestPriority = sorted[0].priority;
-  const bestResults = sorted.filter(r => r.priority === bestPriority);
-  
-  console.log(`[DEBUG] Best priority: ${bestPriority}, returning ${bestResults.length} results`);
-  return bestResults;
+  // console.log(`[DEBUG] No definition found for "${symbol}"`);
+  return null;
 }
 
 function execGlobalAsync(command: string, cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    console.log(`[DEBUG] Executing command: "${command}" in directory: "${cwd}"`);
+    // console.log(`[DEBUG] Executing command: "${command}" in directory: "${cwd}"`);
     
     // まずgtagsファイルの存在確認
     const fs = require('fs');
@@ -242,21 +249,21 @@ function execGlobalAsync(command: string, cwd: string): Promise<string> {
     gtagsFiles.forEach(file => {
       const filePath = path.join(cwd, file);
       const exists = fs.existsSync(filePath);
-      console.log(`[DEBUG] ${file} exists: ${exists}`);
+      // console.log(`[DEBUG] ${file} exists: ${exists}`);
       if (exists) {
         const stats = fs.statSync(filePath);
-        console.log(`[DEBUG] ${file} size: ${stats.size} bytes, modified: ${stats.mtime}`);
+        // console.log(`[DEBUG] ${file} size: ${stats.size} bytes, modified: ${stats.mtime}`);
       }
     });
 
     cp.exec(command, { cwd }, (error, stdout, stderr) => {
-      console.log(`[DEBUG] Command stderr: "${stderr}"`);
-      console.log(`[DEBUG] Command stdout length: ${stdout.length}`);
-      console.log(`[DEBUG] Command stdout: "${stdout}"`);
+      // console.log(`[DEBUG] Command stderr: "${stderr}"`);
+      // console.log(`[DEBUG] Command stdout length: ${stdout.length}`);
+      // console.log(`[DEBUG] Command stdout: "${stdout}"`);
       
       if (error) {
-        console.log(`[DEBUG] Command error: ${error.message}`);
-        console.log(`[DEBUG] Error code: ${error.code}`);
+        // console.log(`[DEBUG] Command error: ${error.message}`);
+        // console.log(`[DEBUG] Error code: ${error.code}`);
         reject(error);
       } else {
         resolve(stdout);
@@ -267,14 +274,16 @@ function execGlobalAsync(command: string, cwd: string): Promise<string> {
 
 /**
  * コマンド用ターミナル取得関数
- * 設定に応じて新規作成 or 既存ターミナル利用
+ * 設定に応じた新規作成/既存利用を決定
+ * forceNew=trueの場合: 同名ターミナルがあれば再利用、なければ新規作成
+ * forceNew=falseの場合: アクティブまたは既存のターミナルを利用
  */
 function getTerminalForCommand(
   commandName: 'updateTags' | 'listSymbolsInFile' | 'searchByGrep', 
   rootPath: string,
   config: ConfigCache
 ): vscode.Terminal {
-    // 新コード（個別 boolean）
+  // 各コマンド用の個別設定を取得
   let forceNew = false;
   switch (commandName) {
     case 'updateTags':
@@ -288,7 +297,7 @@ function getTerminalForCommand(
       break;
   }
 
-  // タグ名と同名のターミナルがある場合には、新規作成せず再利用する
+  // forceNew=trueの場合は専用ターミナルを使用（同名があれば再利用）
   if (forceNew) {
     const existing = vscode.window.terminals.find(t => t.name === commandName);
     if (existing) return existing; // 再利用する
@@ -328,8 +337,13 @@ export function activate(context: vscode.ExtensionContext) {
    * 指定ファイルの指定行にジャンプして開く
    * @param item {file, line}
    * @param rootPath workspaceルートパス
+   * @param isLocalFile 同じファイル内かどうか（trueの場合は強制的に右側エディタに開く）
    */
-  async function openFileAtPosition(item: { file: string; line: number }, rootPath: string) {
+  async function openFileAtPosition(
+    item: { file: string; line: number }, 
+    rootPath: string,
+    isLocalFile: boolean = false
+  ) {
     const filePath = path.isAbsolute(item.file) ? item.file : path.join(rootPath, item.file);
     
     // エディタキャッシュを使用して高速検索
@@ -339,31 +353,37 @@ export function activate(context: vscode.ExtensionContext) {
     const viewColumnSetting = configCache.get<string>('viewColumn', 'second');
 
     let viewColumn: vscode.ViewColumn | undefined;
-    switch (viewColumnSetting) {
-      case 'active':
-        viewColumn = vscode.window.activeTextEditor?.viewColumn;
-        break;
-      case 'beside':
-        viewColumn = vscode.ViewColumn.Beside;
-        break;
-      case 'first':
-        viewColumn = vscode.ViewColumn.One;
-        break;
-      case 'second':
-        viewColumn = vscode.ViewColumn.Two;
-        break;
-      case 'third':
-        viewColumn = vscode.ViewColumn.Three;
-        break;
-      default:
-        viewColumn = vscode.window.activeTextEditor?.viewColumn;
-        break;
+    
+    // 同じファイル内の場合は設定を無視して右のエディターに開く
+    if (isLocalFile) {
+      viewColumn = vscode.ViewColumn.Two; // 右のエディター
+    } else {
+      switch (viewColumnSetting) {
+        case 'active':
+          viewColumn = vscode.window.activeTextEditor?.viewColumn;
+          break;
+        case 'beside':
+          viewColumn = vscode.ViewColumn.Beside;
+          break;
+        case 'first':
+          viewColumn = vscode.ViewColumn.One;
+          break;
+        case 'second':
+          viewColumn = vscode.ViewColumn.Two;
+          break;
+        case 'third':
+          viewColumn = vscode.ViewColumn.Three;
+          break;
+        default:
+          viewColumn = vscode.window.activeTextEditor?.viewColumn;
+          break;
+      }
     }
 
     const usePreviewTab = configCache.get<boolean>('usePreviewTab', false);
 
     const pos = new vscode.Position(item.line, 0);
-    if (existingEditor) {
+    if (existingEditor && !isLocalFile) {
       const editor = await vscode.window.showTextDocument(existingEditor.document, {
         viewColumn: existingEditor.viewColumn ?? viewColumn,
         preview: usePreviewTab
@@ -385,9 +405,10 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   /**
-   * 定義ジャンプコマンド
-   * カーソル下のシンボルの定義位置をgtags(global)で検索し、
-   * 候補が1件なら直接ジャンプ、複数なら選択させる
+   * 統合された定義ジャンプコマンド
+   * 1. gtags検索で複数の候補があればQuickPick表示
+   * 2. 1件または設定でfirstMatchならそのままジャンプ
+   * 3. gtagsで見つからなければgd風ローカル検索にフォールバック
    */
   const jumpToDefinition = vscode.commands.registerCommand('gtags-hopper.jumpToDefinition', async () => {
     const editor = vscode.window.activeTextEditor;
@@ -406,7 +427,7 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
     const symbol = document.getText(wordRange);
-    console.log(`[DEBUG] Symbol to search: "${symbol}"`);
+    // console.log(`[DEBUG] Symbol to search: "${symbol}"`);
 
     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!rootPath) {
@@ -425,6 +446,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     let globalResult = '';
     let filteredItems: any[] = [];
+    
     try {
       // エディタ上部の青い進捗バーを使用
       const elapsedMs = await vscode.window.withProgress({
@@ -435,84 +457,101 @@ export function activate(context: vscode.ExtensionContext) {
         const startTime = Date.now();
         
         progress.report({ increment: 0, message: 'Executing global command...' });
-        globalResult = await execGlobalAsync(`global -xa ${symbol}`, rootPath);
-        console.log(`[DEBUG] Raw global result: "${globalResult}"`);
         
-        progress.report({ increment: 40, message: 'Parsing global results...' });
-        
-        // 結果の行を分割し、空行を除外
-        const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
-        
-        if (lines.length > 0) {
-          // 最適化された正規表現処理
-          const itemsRaw = lines.map(line => {
-            const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
-            if (!m) return null;
-            const [, sym, lineNumStr, file, code] = m;
-            const lineNum = parseInt(lineNumStr, 10) - 1;
-
-            if (/^\d+$/.test(file)) return null;
-
-            // 相対パスに変更
-            const relativePath = path.relative(rootPath, file);
-
-            return {
-              label: `${relativePath}:${lineNum + 1}`, 
-              description: code.trim(),
-              file,
-              line: lineNum
-            };
-          });
-
-          // null除去
-          filteredItems = itemsRaw.filter((v): v is NonNullable<typeof v> => v !== null);
+        try {
+          globalResult = await execGlobalAsync(`global -xa ${symbol}`, rootPath);
+          // console.log(`[DEBUG] Raw global result: "${globalResult}"`);
           
-          console.log(`[DEBUG] Global search results: ${filteredItems.length} items found`);
-          console.log(`[DEBUG] Global results:`, filteredItems);
+          progress.report({ increment: 40, message: 'Parsing global results...' });
+          
+          // 結果の行を分割し、空行を除外
+          const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
+          
+          if (lines.length > 0) {
+            // 最適化された正規表現処理
+            const itemsRaw = lines.map(line => {
+              const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
+              if (!m) return null;
+              const [, sym, lineNumStr, file, code] = m;
+              const lineNum = parseInt(lineNumStr, 10) - 1;
+
+              if (/^\d+$/.test(file)) return null;
+
+              // 表示用相対パス、内部処理用絶対パス
+              const relativePath = path.relative(rootPath, file);
+
+              return {
+                label: `${relativePath}:${lineNum + 1}`, 
+                description: code.trim(),
+                file, // 絶対パスを保持
+                line: lineNum
+              };
+            });
+
+            // null除去
+            filteredItems = itemsRaw.filter((v): v is NonNullable<typeof v> => v !== null);
+            
+            // console.log(`[DEBUG] Global search results: ${filteredItems.length} items found`);
+            // console.log(`[DEBUG] Global results:`, filteredItems);
+          }
+        } catch (globalError) {
+          // console.log(`[DEBUG] Global search failed: ${(globalError as Error).message}`);
+          filteredItems = []; // グローバル検索失敗時は空配列
         }
 
         // gtagsで見つからない場合はローカル検索にフォールバック
         if (filteredItems.length === 0) {
           progress.report({ increment: 50, message: 'Global search failed, searching locally...' });
-          console.log(`[DEBUG] No global results found, falling back to local search`);
+          // console.log(`[DEBUG] No global results found, falling back to local search`);
           
           // 現在の関数スコープを取得
           const functionScope = getCurrentFunctionScope(document, position);
-          let localResults: any[] = [];
+          let localDefinition: { line: number; description: string } | null = null;
           
           if (functionScope) {
             // 関数スコープ内で検索
-            console.log(`[DEBUG] Searching in function scope: lines ${functionScope.start}-${functionScope.end}`);
-            localResults = searchSymbolInRange(symbol, document, functionScope.start, functionScope.end);
-            console.log(`[DEBUG] Function scope results:`, localResults);
+            // console.log(`[DEBUG] Searching in function scope: lines ${functionScope.start}-${functionScope.end}`);
+            localDefinition = findFirstDefinition(symbol, document, functionScope.start, functionScope.end);
+            // console.log(`[DEBUG] Function scope result:`, localDefinition);
           }
           
           // 関数スコープで見つからない場合は、ファイル全体で検索
-          if (localResults.length === 0) {
-            console.log(`[DEBUG] No results in function scope, searching entire file`);
-            localResults = searchSymbolInRange(symbol, document);
-            console.log(`[DEBUG] File-wide results:`, localResults);
+          if (!localDefinition) {
+            // console.log(`[DEBUG] No results in function scope, searching entire file`);
+            localDefinition = findFirstDefinition(symbol, document);
+            // console.log(`[DEBUG] File-wide result:`, localDefinition);
           }
           
-          // ローカル検索結果をfilteredItemsの形式に変換
-          filteredItems = localResults.map(result => ({
-            label: `${document.fileName}:${result.line + 1} (Local)`,
-            description: result.description,
-            file: document.uri.fsPath,
-            line: result.line
-          }));
-          
-          console.log(`[DEBUG] Local search results: ${filteredItems.length} items found`);
-          console.log(`[DEBUG] Local results:`, filteredItems);
+          if (localDefinition) {
+            // ローカル検索結果も設定に応じたエディタで開く
+            progress.report({ increment: 100, message: 'Found local definition' });
+            
+            const localItem = {
+              file: document.uri.fsPath,
+              line: localDefinition.line
+            };
+            const currentFilePath = document.uri.fsPath;
+            const isLocalFile = localItem.file === currentFilePath;
+            await openFileAtPosition(localItem, rootPath, isLocalFile);
+            
+            const searchType = functionScope ? 'Function scope' : 'File-wide';
+            const showSearchTime = configCache.get<boolean>('showSearchTime', false);
+            if (showSearchTime) {
+              const elapsed = Date.now() - startTime;
+              vscode.window.showInformationMessage(`${searchType} search found definition in ${elapsed} ms`);
+            }
+            return Date.now() - startTime;
+          }
         }
         
         progress.report({ increment: 100, message: `Found ${filteredItems.length} results` });
-        const endTime = Date.now();
-        return endTime - startTime;
+        
+        return Date.now() - startTime;
       });
 
-      console.log(`[DEBUG] After search - filteredItems.length: ${filteredItems.length}`);
+      // console.log(`[DEBUG] After search - filteredItems.length: ${filteredItems.length}`);
 
+      // グローバル検索とローカル検索の両方で見つからなかった場合
       if (filteredItems.length === 0) {
         vscode.window.showInformationMessage(`No definition found for: ${symbol}`);
         return;
@@ -523,7 +562,9 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (filteredItems.length === 1 || multipleAction === 'firstMatch') {
         // 候補1件 または firstMatch指定なら最初にジャンプ
-        await openFileAtPosition(filteredItems[0], rootPath);
+        const currentFilePath = document.uri.fsPath;
+        const isLocalFile = filteredItems[0].file === currentFilePath;
+        await openFileAtPosition(filteredItems[0], rootPath, isLocalFile);
       } else {
         // QuickPickを表示
         const allOpenOption = {
@@ -549,10 +590,14 @@ export function activate(context: vscode.ExtensionContext) {
             }
           }
           for (const [file, line] of fileMap.entries()) {
-            await openFileAtPosition({ file, line }, rootPath);
+            const currentFilePath = document.uri.fsPath;
+            const isLocalFile = file === currentFilePath;
+            await openFileAtPosition({ file, line }, rootPath, isLocalFile);
           }
         } else {
-          await openFileAtPosition(picked, rootPath);
+          const currentFilePath = document.uri.fsPath;
+          const isLocalFile = picked.file === currentFilePath;
+          await openFileAtPosition(picked, rootPath, isLocalFile);
         }
       }
 
@@ -561,39 +606,16 @@ export function activate(context: vscode.ExtensionContext) {
         const searchType = globalResult.trim() ? 'Global' : 'Local';
         vscode.window.showInformationMessage(`${searchType} search took ${elapsedMs} ms`);
       }
-    } catch (err) {
-      console.log(`[DEBUG] Global search error: ${(err as Error).message}`);
       
-      // gtagsコマンドでエラーが発生した場合もローカル検索にフォールバック
-      console.log(`[DEBUG] Global command failed, falling back to local search`);
-      
-      const functionScope = getCurrentFunctionScope(document, position);
-      let localResults: any[] = [];
-      
-      if (functionScope) {
-        localResults = searchSymbolInRange(symbol, document, functionScope.start, functionScope.end);
-      }
-      
-      if (localResults.length === 0) {
-        localResults = searchSymbolInRange(symbol, document);
-      }
-      
-      if (localResults.length === 0) {
-        vscode.window.showErrorMessage(`No definition found for "${symbol}" (global command failed: ${(err as Error).message})`);
-        return;
-      }
-      
-      // ローカル検索結果から直接ジャンプ
-      const pos = new vscode.Position(localResults[0].line, 0);
-      editor.selection = new vscode.Selection(pos, pos);
-      editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
-      
-      vscode.window.showInformationMessage(`Found local definition for "${symbol}" (global search failed)`);
+    } catch (error) {
+      console.error(`[DEBUG] Unexpected error in definition search:`, error);
+      vscode.window.showErrorMessage(`Error searching for "${symbol}": ${(error as Error).message}`);
     }
   });
 
   /**
    * ジャンプ履歴から前の位置に戻るコマンド
+   * 元のエディタ位置（保存されたviewColumn）に戻る
    */
   const jumpBack = vscode.commands.registerCommand('gtags-hopper.jumpBack', async () => {
     if (jumpHistory.length === 0) {
@@ -603,23 +625,13 @@ export function activate(context: vscode.ExtensionContext) {
 
     const last = jumpHistory.pop()!;
 
-    // エディタキャッシュを使用して高速検索
-    let editor = editorCache.findByPath(last.uri.fsPath);
-
-    if (!editor) {
-      // 開かれていなければ新規に開く
-      const doc = await vscode.workspace.openTextDocument(last.uri);
-      editor = await vscode.window.showTextDocument(doc, {
-        viewColumn: last.viewColumn ?? vscode.ViewColumn.One,
-        preview: false
-      });
-    } else {
-      // 既存エディタを再利用
-      editor = await vscode.window.showTextDocument(editor.document, {
-        viewColumn: editor.viewColumn ?? last.viewColumn ?? vscode.ViewColumn.One,
-        preview: false
-      });
-    }
+    // 元の位置（保存されたviewColumn）に戻る
+    const doc = await vscode.workspace.openTextDocument(last.uri);
+    const editor = await vscode.window.showTextDocument(doc, {
+      viewColumn: last.viewColumn ?? vscode.ViewColumn.One,
+      preview: false,
+      preserveFocus: false
+    });
 
     // カーソル位置を復元
     editor.selection = new vscode.Selection(last.position, last.position);
