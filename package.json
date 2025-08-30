@@ -32,12 +32,12 @@
       { "command": "gtags-hopper.searchByGrep", "title": "Gtags Hopper: Search by Grep (Regex)" }
     ],
     "keybindings": [
-      { "command": "gtags-hopper.jumpToDefinition", "key": "ctrl+alt+oem_6", "when": "editorTextFocus" },
-      { "command": "gtags-hopper.jumpBack", "key": "ctrl+alt+oem_4", "when": "editorTextFocus" },
-      { "command": "gtags-hopper.jumpToReferences", "key": "ctrl+alt+oem_1", "when": "editorTextFocus" },
-      { "command": "gtags-hopper.listSymbolsInFile", "key": "ctrl+alt+oem_3", "when": "editorTextFocus" },
-      { "command": "gtags-hopper.updateTags", "key": "ctrl+alt+t", "when": "editorTextFocus" },
-      { "command": "gtags-hopper.searchByGrep", "key": "ctrl+alt+oem_102", "when": "editorTextFocus" }
+      { "command": "gtags-hopper.jumpToDefinition", "key": "ctrl+alt+]", "when": "editorTextFocus" },
+      { "command": "gtags-hopper.jumpBack", "key": "ctrl+alt+[", "when": "editorTextFocus" },
+      { "command": "gtags-hopper.jumpToReferences", "key": "ctrl+alt+R", "when": "editorTextFocus" },
+      { "command": "gtags-hopper.listSymbolsInFile", "key": "ctrl+alt+S", "when": "editorTextFocus" },
+      { "command": "gtags-hopper.updateTags", "key": "ctrl+alt+T", "when": "editorTextFocus" },
+      { "command": "gtags-hopper.searchByGrep", "key": "ctrl+alt+G", "when": "editorTextFocus" }
     ],
     "menus": {
       "editor/context": [
