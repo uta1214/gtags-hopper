@@ -8,7 +8,12 @@
     "vscode": "^1.56.0"
   },
   "activationEvents": [
-    "*"
+    "onCommand:gtags-hopper.jumpToDefinition",
+    "onCommand:gtags-hopper.jumpBack",
+    "onCommand:gtags-hopper.updateTags",
+    "onCommand:gtags-hopper.jumpToReferences",
+    "onCommand:gtags-hopper.listSymbolsInFile",
+    "onCommand:gtags-hopper.searchByGrep"
   ],
   "main": "./out/extension.js",
   "scripts": {
@@ -24,93 +29,96 @@
   },
   "contributes": {
     "commands": [
-      { "command": "gtags-hopper.jumpToDefinition", "title": "Gtags Hopper: Jump to Definition" },
-      { "command": "gtags-hopper.jumpBack", "title": "Gtags Hopper: Jump Back" },
-      { "command": "gtags-hopper.updateTags", "title": "Gtags Hopper: Update Tags" },
-      { "command": "gtags-hopper.jumpToReferences", "title": "Gtags Hopper: Jump to References" },
-      { "command": "gtags-hopper.listSymbolsInFile", "title": "Gtags Hopper: List Symbols in File" },
-      { "command": "gtags-hopper.searchByGrep", "title": "Gtags Hopper: Search by Grep (Regex)" }
+      {
+        "command": "gtags-hopper.jumpToDefinition",
+        "title": "Gtags Hopper: Jump to Definition"
+      },
+      {
+        "command": "gtags-hopper.jumpBack",
+        "title": "Gtags Hopper: Jump Back"
+      },
+      {
+        "command": "gtags-hopper.updateTags",
+        "title": "Gtags Hopper: Update Tags"
+      },
+      {
+        "command": "gtags-hopper.jumpToReferences",
+        "title": "Gtags Hopper: Jump to References"
+      },
+      {
+        "command": "gtags-hopper.listSymbolsInFile",
+        "title": "Gtags Hopper: List Symbols in File"
+      },
+      {
+        "command": "gtags-hopper.searchByGrep",
+        "title": "Gtags Hopper: Search by Grep (Regex)"
+      }
     ],
     "keybindings": [
-      { "command": "gtags-hopper.jumpToDefinition", "key": "ctrl+alt+]", "when": "editorTextFocus" },
-      { "command": "gtags-hopper.jumpBack", "key": "ctrl+alt+[", "when": "editorTextFocus" },
-      { "command": "gtags-hopper.jumpToReferences", "key": "ctrl+alt+R", "when": "editorTextFocus" },
-      { "command": "gtags-hopper.listSymbolsInFile", "key": "ctrl+alt+S", "when": "editorTextFocus" },
-      { "command": "gtags-hopper.updateTags", "key": "ctrl+alt+T", "when": "editorTextFocus" },
-      { "command": "gtags-hopper.searchByGrep", "key": "ctrl+alt+G", "when": "editorTextFocus" }
+      {
+        "command": "gtags-hopper.jumpToDefinition",
+        "key": "ctrl+alt+oem_6",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "gtags-hopper.jumpBack",
+        "key": "ctrl+alt+oem_4",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "gtags-hopper.jumpToReferences",
+        "key": "ctrl+alt+oem_1",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "gtags-hopper.listSymbolsInFile",
+        "key": "ctrl+alt+oem_3",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "gtags-hopper.updateTags",
+        "key": "ctrl+alt+t",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "gtags-hopper.searchByGrep",
+        "key": "ctrl+alt+oem_102",
+        "when": "editorTextFocus"
+      }
     ],
     "menus": {
       "editor/context": [
-        { "command": "gtags-hopper.jumpToDefinition", "group": "aa_commands@0", "when": "editorTextFocus" },
-        { "command": "gtags-hopper.jumpBack", "group": "aa_commands@1", "when": "editorTextFocus" },
-        { "command": "gtags-hopper.updateTags", "group": "aa_commands@2", "when": "editorTextFocus" },
-        { "command": "gtags-hopper.jumpToReferences", "group": "aa_commands@3", "when": "editorTextFocus" },
-        { "command": "gtags-hopper.listSymbolsInFile", "group": "aa_commands@4", "when": "editorTextFocus" },
-        { "command": "gtags-hopper.searchByGrep", "group": "aa_commands@5", "when": "editorTextFocus" }
-      ]
-    },
-    "configuration": {
-      "type": "object",
-      "title": "Gtags Hopper Settings",
-      "properties": {
-        "gtags-hopper.viewColumn": {
-          "type": "string",
-          "enum": ["first", "second", "third", "active", "beside"],
-          "default": "second",
-          "description": "Specify which column to open files in. 'beside' opens in the column next to the current one. / ファイルを開くカラムを指定します。beside は現在のカラムの右隣に開きます。"
+        {
+          "command": "gtags-hopper.jumpToDefinition",
+          "group": "aa_commands@0",
+          "when": "editorTextFocus"
         },
-        "gtags-hopper.usePreviewTab": {
-          "type": "boolean",
-          "default": false,
-          "description": "Whether to open files in preview tab (italic tab) when jumping. true = preview mode, false = normal tab / ジャンプ時にプレビュータブ（斜体タブ）で開くかどうか。true = プレビュー表示、false = 通常タブ"
+        {
+          "command": "gtags-hopper.jumpBack",
+          "group": "aa_commands@1",
+          "when": "editorTextFocus"
         },
-        "gtags-hopper.multipleResultAction": {
-          "type": "string",
-          "enum": ["quickPick", "firstMatch"],
-          "default": "quickPick",
-          "description": "Action when multiple search results are found. quickPick = show selection dialog, firstMatch = jump to first result automatically / 検索結果が複数ある場合の動作。quickPick = 選択ダイアログを表示、firstMatch = 最初に見つかった結果に自動ジャンプ"
+        {
+          "command": "gtags-hopper.updateTags",
+          "group": "aa_commands@2",
+          "when": "editorTextFocus"
         },
-        "gtags-hopper.maxHistory": {
-          "type": "number",
-          "default": 50,
-          "description": "Maximum number of jump history entries to keep. Older entries are removed. / ジャンプ履歴の最大保持数。古いものから削除される。"
+        {
+          "command": "gtags-hopper.jumpToReferences",
+          "group": "aa_commands@3",
+          "when": "editorTextFocus"
         },
-        "gtags-hopper.showSearchTime": {
-          "type": "boolean",
-          "default": false,
-          "description": "Whether to display search time in status bar. / 検索時間をステータスバーに表示するかどうか。"
+        {
+          "command": "gtags-hopper.listSymbolsInFile",
+          "group": "aa_commands@4",
+          "when": "editorTextFocus"
         },
-        "gtags-hopper.updateTagsTerminalNew": {
-          "type": "boolean",
-          "default": false,
-          "description": "Whether to create a new terminal for UpdateTags command / UpdateTags コマンドで新規ターミナルを作るか"
-        },
-        "gtags-hopper.listSymbolsInFileTerminalNew": {
-          "type": "boolean",
-          "default": false,
-          "description": "Whether to create a new terminal for ListSymbolsInFile command / ListSymbolsInFile コマンドで新規ターミナルを作るか"
-        },
-        "gtags-hopper.searchByGrepTerminalNew": {
-          "type": "boolean",
-          "default": false,
-          "description": "Whether to create a new terminal for SearchByGrep command / SearchByGrep コマンドで新規ターミナルを作るか"
-        },
-        "gtags-hopper.gtagsCommand": {
-          "type": "string",
-          "default": "",
-          "description": "Path to gtags executable command. If empty, uses 'gtags' from PATH / gtags実行コマンドのパス。空の場合はPATHから'gtags'を使用"
-        },
-        "gtags-hopper.gtagsArgs": {
-          "type": "string",
-          "default": "",
-          "description": "Additional arguments for gtags execution. e.g. --gtagslabel=ctags --verbose / gtags 実行時の追加引数。例: --gtagslabel=ctags --verbose"
-        },
-        "gtags-hopper.centerCursorAfterJumpBack": {
-          "type": "boolean",
-          "default": false,
-          "description": "Whether to center cursor position in editor when jumping back from history. / ジャンプ履歴から戻ったとき、カーソル位置をエディターの中央に表示するか。"
+        {
+          "command": "gtags-hopper.searchByGrep",
+          "group": "aa_commands@5",
+          "when": "editorTextFocus"
         }
-      }
+      ]
     }
   }
 }
