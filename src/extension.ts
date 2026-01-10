@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';
+<<<<<<< HEAD
 import { promises as fs } from 'fs';
 
 // 正規表現のコンパイル最適化
@@ -409,6 +410,18 @@ export function activate(context: vscode.ExtensionContext) {
    * 1. gtags検索で複数の候補があればQuickPick表示
    * 2. 1件または設定でfirstMatchならそのままジャンプ
    * 3. gtagsで見つからなければgd風ローカル検索にフォールバック
+=======
+import * as fs from 'fs';
+
+export function activate(context: vscode.ExtensionContext) {
+  // ジャンプ履歴を保持（戻る機能用）
+  const jumpHistory: { uri: vscode.Uri, position: vscode.Position, viewColumn: vscode.ViewColumn | undefined }[] = [];
+
+  /**
+   * 定義ジャンプコマンド
+   * カーソル下のシンボルの定義位置をgtags(global)で検索し、
+   * 候補が1件なら直接ジャンプ、複数なら選択させる
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
    */
   const jumpToDefinition = vscode.commands.registerCommand('gtags-hopper.jumpToDefinition', async () => {
     const editor = vscode.window.activeTextEditor;
@@ -420,14 +433,21 @@ export function activate(context: vscode.ExtensionContext) {
     const document = editor.document;
     const position = editor.selection.active;
 
+<<<<<<< HEAD
     // カーソル下の単語（シンボル）を取得
+=======
+    // 選択中の単語（シンボル）を取得
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
     const wordRange = document.getWordRangeAtPosition(position);
     if (!wordRange) {
       vscode.window.showErrorMessage('No symbol selected');
       return;
     }
     const symbol = document.getText(wordRange);
+<<<<<<< HEAD
     // console.log(`[DEBUG] Symbol to search: "${symbol}"`);
+=======
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
 
     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!rootPath) {
@@ -435,13 +455,18 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
+<<<<<<< HEAD
     // キャッシュされた設定値を使用
     const maxHistory = configCache.get<number>('maxHistory', 50);
 
+=======
+    // 現在の編集位置を履歴に保存（戻る用）
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
     jumpHistory.push({
       uri: document.uri,
       position,
       viewColumn: editor.viewColumn
+<<<<<<< HEAD
     }, maxHistory);
 
     let globalResult = '';
@@ -553,10 +578,32 @@ export function activate(context: vscode.ExtensionContext) {
 
       // グローバル検索とローカル検索の両方で見つからなかった場合
       if (filteredItems.length === 0) {
+=======
+    });
+
+    let globalResult = '';
+    try {
+      // プログレス表示しつつglobalコマンドで定義を検索
+      const elapsedMs = await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Window,
+        title: `Searching for "${symbol}"...`,
+        cancellable: false
+      }, () => {
+        const startTime = Date.now();
+        globalResult = cp.execSync(`global -xa ${symbol}`, { cwd: rootPath }).toString();
+        const endTime = Date.now();
+        return Promise.resolve(endTime - startTime);
+      });
+
+      // 結果の行を分割して空行を除外
+      const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
+      if (lines.length === 0) {
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
         vscode.window.showInformationMessage(`No definition found for: ${symbol}`);
         return;
       }
 
+<<<<<<< HEAD
       // キャッシュされた設定値を使用
       const multipleAction = configCache.get<string>('multipleResultAction', 'quickPick');
 
@@ -567,13 +614,62 @@ export function activate(context: vscode.ExtensionContext) {
         await openFileAtPosition(filteredItems[0], rootPath, isLocalFile);
       } else {
         // QuickPickを表示
+=======
+      // 候補アイテムの作成
+      const itemsRaw = lines.map(line => {
+        // globalの行形式を正規表現でパース
+        const m = line.trim().match(/^(\S+)\s+(\d+)\s+(\S+)/);
+        if (!m) return null;
+        const [, sym, lineNumStr, file] = m;
+        const lineNum = parseInt(lineNumStr, 10) - 1;
+
+        // 行番号だけの無効なファイル名は除外
+        if (/^\d+$/.test(file)) return null;
+
+        // ファイルの相対パスを計算
+        const relPath = path.isAbsolute(file)
+          ? path.relative(rootPath, file)
+          : file;
+
+        // ファイルの該当行テキストを取得（読み込み失敗時はメッセージ）
+        let lineContent = '';
+        try {
+          const fileContent = fs.readFileSync(
+            path.isAbsolute(file) ? file : path.join(rootPath, file),
+            'utf8'
+          );
+          const fileLines = fileContent.split(/\r?\n/);
+          lineContent = fileLines[lineNum]?.trim() ?? '';
+        } catch {
+          lineContent = '[Failed to read line]';
+        }
+
+        return {
+          label: `${relPath}:${lineNum + 1}`,
+          description: lineContent,
+          file,
+          line: lineNum
+        };
+      }).filter((v): v is NonNullable<typeof v> => v !== null);
+
+      // 候補が1件なら直接ジャンプ
+      if (itemsRaw.length === 1) {
+        await openFileAtPosition(itemsRaw[0], rootPath);
+
+      // 複数件なら選択肢＋「すべて開く」オプションを表示
+      } else {
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
         const allOpenOption = {
           label: 'Open All Definitions',
           description: '',
           file: '__all__',
           line: -1
         };
+<<<<<<< HEAD
         const itemsWithAll = [...filteredItems, allOpenOption];
+=======
+        const itemsWithAll = [...itemsRaw, allOpenOption];
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
 
         const picked = await vscode.window.showQuickPick(itemsWithAll, {
           placeHolder: `Select definition of ${symbol}`
@@ -581,15 +677,22 @@ export function activate(context: vscode.ExtensionContext) {
         if (!picked) return;
 
         if (picked.file === '__all__') {
+<<<<<<< HEAD
           // 複数ファイルを順に開く
           const fileMap = new Map<string, number>();
           for (const item of filteredItems) {
+=======
+          // ファイルごとに最小の行番号を探して順に開く
+          const fileMap = new Map<string, number>();
+          for (const item of itemsRaw) {
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
             const prevLine = fileMap.get(item.file);
             if (prevLine === undefined || item.line < prevLine) {
               fileMap.set(item.file, item.line);
             }
           }
           for (const [file, line] of fileMap.entries()) {
+<<<<<<< HEAD
             const currentFilePath = document.uri.fsPath;
             const isLocalFile = file === currentFilePath;
             await openFileAtPosition({ file, line }, rootPath, isLocalFile);
@@ -610,12 +713,48 @@ export function activate(context: vscode.ExtensionContext) {
     } catch (error) {
       console.error(`[DEBUG] Unexpected error in definition search:`, error);
       vscode.window.showErrorMessage(`Error searching for "${symbol}": ${(error as Error).message}`);
+=======
+            await openFileAtPosition({ file, line }, rootPath);
+          }
+        } else {
+          await openFileAtPosition(picked, rootPath);
+        }
+      }
+
+      vscode.window.showInformationMessage(`Search took ${elapsedMs} ms`);
+
+    } catch (err) {
+      vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
     }
   });
 
   /**
+<<<<<<< HEAD
    * ジャンプ履歴から前の位置に戻るコマンド
    * 元のエディタ位置（保存されたviewColumn）に戻る
+=======
+   * 指定ファイルの指定行にジャンプして開く
+   * @param item {file, line}
+   * @param rootPath workspaceルートパス
+   */
+  async function openFileAtPosition(item: { file: string; line: number }, rootPath: string) {
+    const filePath = path.isAbsolute(item.file) ? item.file : path.join(rootPath, item.file);
+    const doc = await vscode.workspace.openTextDocument(filePath);
+    await vscode.window.showTextDocument(doc, {
+      viewColumn: vscode.ViewColumn.Two,
+      preserveFocus: false,
+      preview: false
+    }).then(editor2 => {
+      const pos = new vscode.Position(item.line, 0);
+      editor2.selection = new vscode.Selection(pos, pos);
+      editor2.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+    });
+  }
+
+  /**
+   * ジャンプ履歴から前の位置に戻るコマンド
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
    */
   const jumpBack = vscode.commands.registerCommand('gtags-hopper.jumpBack', async () => {
     if (jumpHistory.length === 0) {
@@ -624,6 +763,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     const last = jumpHistory.pop()!;
+<<<<<<< HEAD
 
     // 元の位置（保存されたviewColumn）に戻る
     const doc = await vscode.workspace.openTextDocument(last.uri);
@@ -642,12 +782,25 @@ export function activate(context: vscode.ExtensionContext) {
       new vscode.Range(last.position, last.position),
       centerBack ? vscode.TextEditorRevealType.InCenter : vscode.TextEditorRevealType.Default
     );
+=======
+    const doc = await vscode.workspace.openTextDocument(last.uri);
+    const editor = await vscode.window.showTextDocument(doc, {
+      viewColumn: last.viewColumn ?? vscode.ViewColumn.One,
+      preview: false
+    });
+    editor.selection = new vscode.Selection(last.position, last.position);
+    // editor.revealRange(new vscode.Range(last.position, last.position), vscode.TextEditorRevealType.InCenter);
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
   });
 
   /**
    * 参照検索コマンド
+<<<<<<< HEAD
    * カーソル下のシンボルの参照箇所をglobalで非同期検索し、
    * QuickPickで選択してジャンプ
+=======
+   * カーソル下のシンボルの参照箇所をglobalで検索し、QuickPickで選択してジャンプ
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
    */
   const jumpToReferences = vscode.commands.registerCommand('gtags-hopper.jumpToReferences', async () => {
     const editor = vscode.window.activeTextEditor;
@@ -672,6 +825,7 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
+<<<<<<< HEAD
     // キャッシュされた設定値を使用
     const maxHistory = configCache.get<number>('maxHistory', 50);
 
@@ -741,10 +895,62 @@ export function activate(context: vscode.ExtensionContext) {
       const pos = new vscode.Position(picked.line, 0);
       editor2.selection = new vscode.Selection(pos, pos);
       editor2.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+=======
+    let globalResult = '';
+    try {
+      globalResult = cp.execSync(`global -rx ${symbol}`, { cwd: rootPath }).toString();
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
     } catch (err) {
       vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
       return;
     }
+<<<<<<< HEAD
+=======
+
+    const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
+    if (lines.length === 0) {
+      vscode.window.showInformationMessage(`No references found for: ${symbol}`);
+      return;
+    }
+
+    // QuickPick用アイテム作成
+    const items = lines.map(line => {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length < 4) return null;
+
+      // 行のファイル名以降のコード部分を取得
+      const sym = parts[0];
+      const lineNum = parts[1];
+      const file = parts[2];
+      const idx = line.indexOf(file) + file.length;
+      const code = line.slice(idx).trim();
+
+      return {
+        label: `${file}:${lineNum} ${code}`,
+        description: '',
+        file,
+        line: parseInt(lineNum, 10) - 1
+      };
+    }).filter((v): v is NonNullable<typeof v> => v !== null);
+
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: `Select reference of ${symbol}`
+    });
+
+    if (!picked) return;
+
+    // 選択したファイル位置にジャンプ
+    const filePath = path.isAbsolute(picked.file) ? picked.file : path.join(rootPath, picked.file);
+    const doc = await vscode.workspace.openTextDocument(filePath);
+    const editor2 = await vscode.window.showTextDocument(doc, {
+      viewColumn: vscode.ViewColumn.Two,
+      preserveFocus: false,
+      preview: false
+    });
+    const pos = new vscode.Position(picked.line, 0);
+    editor2.selection = new vscode.Selection(pos, pos);
+    editor2.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
   });
 
   /**
@@ -768,10 +974,44 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     try {
+<<<<<<< HEAD
       let terminal = getTerminalForCommand('listSymbolsInFile', rootPath, configCache);
 
       terminal.show(true);
       terminal.sendText(`global -fx "${filePath}"`);
+=======
+      // globalコマンドでファイルのタグ一覧を取得
+      const globalResult = cp.execSync(`global -f ${filePath}`, { cwd: rootPath }).toString();
+
+      // 行ごとに分割・整形して表示用文字列作成
+      const header = '--list symbol--';
+      const lines = globalResult
+        .trim()
+        .split('\n')
+        .filter(l => l.trim() !== '')
+        .map(line => {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length < 4) return null;
+          const symbol = parts[0];
+          const lineNum = parts[1];
+          const file = parts[2];
+          const idx = line.indexOf(file) + file.length;
+          const code = line.slice(idx).trim();
+          return `${file}:${lineNum} ${symbol} ${code}`;
+        })
+        .filter((v): v is string => v !== null)
+        .join('\n');
+
+      // ターミナルの既存インスタンスを取得 or 新規作成
+      let terminal = vscode.window.terminals.find(t => t.name === 'Gtags Output');
+      if (!terminal) {
+          terminal = vscode.window.createTerminal({ name: 'Gtags Output', cwd: rootPath });
+      }
+      terminal.show(true);
+
+      // 端末に出力（printfでヘッダー付き）
+      terminal.sendText(`printf "%s\\n%s\\n" "--list symbol--" "${lines.replace(/"/g, '\\"')}"`);
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
 
     } catch (err) {
       vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
@@ -789,6 +1029,7 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
+<<<<<<< HEAD
     // 現在の選択テキストを取得（空なら undefined）
     const editor = vscode.window.activeTextEditor;
     const selectedText = editor && !editor.selection.isEmpty
@@ -801,16 +1042,35 @@ export function activate(context: vscode.ExtensionContext) {
       placeHolder: 'e.g. ^foo.*bar',
       ignoreFocusOut: true,
       value: selectedText
+=======
+    // 検索パターンを入力
+    const pattern = await vscode.window.showInputBox({
+      prompt: 'Please enter the regex pattern to search',
+      placeHolder: 'e.g. ^foo.*bar$',
+      ignoreFocusOut: true,
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
     });
     if (!pattern) {
       return; // Cancel or empty input
     }
 
+<<<<<<< HEAD
     let terminal = getTerminalForCommand('searchByGrep', rootPath, configCache);
 
     terminal.show(true);
 
     // global grepコマンド実行（シンプルにシングルクォート囲み）
+=======
+    // ターミナル取得 or 作成
+    let terminal = vscode.window.terminals.find(t => t.name === 'Gtags Grep Search');
+    if (!terminal) {
+      terminal = vscode.window.createTerminal({ name: 'Gtags Grep Search', cwd: rootPath });
+    }
+    terminal.show(true);
+
+    // global grepコマンド実行（シンプルにシングルクォート囲み）
+    terminal.sendText(`echo --search pattern: '${pattern}'`);
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
     terminal.sendText(`global -gx '${pattern}'`);
   });
 
@@ -818,13 +1078,18 @@ export function activate(context: vscode.ExtensionContext) {
    * gtagsデータベース更新コマンド
    * ターミナルで gtags を実行してタグを生成
    */
+<<<<<<< HEAD
   const updateTags = vscode.commands.registerCommand('gtags-hopper.updateTags', async () => {
+=======
+  const updateTags = vscode.commands.registerCommand('gtags-hopper.updateTags', () => {
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!rootPath) {
       vscode.window.showErrorMessage('No workspace folder found');
       return;
     }
 
+<<<<<<< HEAD
     // キャッシュされた設定値を使用
     const gtagsCmd = configCache.get<string>('gtagsCommand', '') || 'gtags';
     const gtagsArgs = configCache.get<string>('gtagsArgs', '');
@@ -835,6 +1100,14 @@ export function activate(context: vscode.ExtensionContext) {
     // 設定に応じたコマンドを作成
     const cmd = gtagsArgs ? `${gtagsCmd} ${gtagsArgs}` : gtagsCmd;
     terminal.sendText(cmd);
+=======
+    let terminal = vscode.window.terminals.find(t => t.name === 'Gtags Generate');
+    if (!terminal) {
+      terminal = vscode.window.createTerminal({ name: 'Gtags Generate', cwd: rootPath });
+    }
+    terminal.show(true);
+    terminal.sendText('gtags');
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
   });
 
   // ステータスバーアイテムを作成（gtags更新コマンドを実行できるボタン）
@@ -856,4 +1129,8 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
+<<<<<<< HEAD
 export function deactivate() {}
+=======
+export function deactivate() {}
+>>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
