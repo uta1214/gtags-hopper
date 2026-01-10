@@ -1,0 +1,11 @@
+node_modules/
+out/
+*.vsix
+
+.vscode/
+GTAGS
+GRTAGS
+GPATH
+
+gtags-test/
+gtags-test-gpt/
