@@ -8,16 +8,7 @@
     "vscode": "^1.56.0"
   },
   "activationEvents": [
-<<<<<<< HEAD
     "*"
-=======
-    "onCommand:gtags-hopper.jumpToDefinition",
-    "onCommand:gtags-hopper.jumpBack",
-    "onCommand:gtags-hopper.updateTags",
-    "onCommand:gtags-hopper.jumpToReferences",
-    "onCommand:gtags-hopper.listSymbolsInFile",
-    "onCommand:gtags-hopper.searchByGrep"
->>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
   ],
   "main": "./out/extension.js",
   "scripts": {
@@ -33,7 +24,6 @@
   },
   "contributes": {
     "commands": [
-<<<<<<< HEAD
       { "command": "gtags-hopper.jumpToDefinition", "title": "Gtags Hopper: Jump to Definition" },
       { "command": "gtags-hopper.jumpBack", "title": "Gtags Hopper: Jump Back" },
       { "command": "gtags-hopper.updateTags", "title": "Gtags Hopper: Update Tags" },
@@ -124,98 +114,3 @@
     }
   }
 }
-=======
-      {
-        "command": "gtags-hopper.jumpToDefinition",
-        "title": "Gtags Hopper: Jump to Definition"
-      },
-      {
-        "command": "gtags-hopper.jumpBack",
-        "title": "Gtags Hopper: Jump Back"
-      },
-      {
-        "command": "gtags-hopper.updateTags",
-        "title": "Gtags Hopper: Update Tags"
-      },
-      {
-        "command": "gtags-hopper.jumpToReferences",
-        "title": "Gtags Hopper: Jump to References"
-      },
-      {
-        "command": "gtags-hopper.listSymbolsInFile",
-        "title": "Gtags Hopper: List Symbols in File"
-      },
-      {
-        "command": "gtags-hopper.searchByGrep",
-        "title": "Gtags Hopper: Search by Grep (Regex)"
-      }
-    ],
-    "keybindings": [
-      {
-        "command": "gtags-hopper.jumpToDefinition",
-        "key": "ctrl+alt+oem_6",
-        "when": "editorTextFocus"
-      },
-      {
-        "command": "gtags-hopper.jumpBack",
-        "key": "ctrl+alt+oem_4",
-        "when": "editorTextFocus"
-      },
-      {
-        "command": "gtags-hopper.jumpToReferences",
-        "key": "ctrl+alt+oem_1",
-        "when": "editorTextFocus"
-      },
-      {
-        "command": "gtags-hopper.listSymbolsInFile",
-        "key": "ctrl+alt+oem_3",
-        "when": "editorTextFocus"
-      },
-      {
-        "command": "gtags-hopper.updateTags",
-        "key": "ctrl+alt+t",
-        "when": "editorTextFocus"
-      },
-      {
-        "command": "gtags-hopper.searchByGrep",
-        "key": "ctrl+alt+oem_102",
-        "when": "editorTextFocus"
-      }
-    ],
-    "menus": {
-      "editor/context": [
-        {
-          "command": "gtags-hopper.jumpToDefinition",
-          "group": "aa_commands@0",
-          "when": "editorTextFocus"
-        },
-        {
-          "command": "gtags-hopper.jumpBack",
-          "group": "aa_commands@1",
-          "when": "editorTextFocus"
-        },
-        {
-          "command": "gtags-hopper.updateTags",
-          "group": "aa_commands@2",
-          "when": "editorTextFocus"
-        },
-        {
-          "command": "gtags-hopper.jumpToReferences",
-          "group": "aa_commands@3",
-          "when": "editorTextFocus"
-        },
-        {
-          "command": "gtags-hopper.listSymbolsInFile",
-          "group": "aa_commands@4",
-          "when": "editorTextFocus"
-        },
-        {
-          "command": "gtags-hopper.searchByGrep",
-          "group": "aa_commands@5",
-          "when": "editorTextFocus"
-        }
-      ]
-    }
-  }
-}
->>>>>>> 32069acf1fa22ff226e50cd01a07fead1506dd93
