@@ -3,7 +3,7 @@
   "displayName": "Gtags Hopper",
   "publisher": "uta-orange-1214",
   "description": "Jump to definitions using GNU GLOBAL (gtags) and open them in the right editor column.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/uta1214/gtags-hopper"
@@ -36,6 +36,24 @@
       { "command": "gtags-hopper.listSymbolsInFile", "title": "Gtags Hopper: List Symbols in File" },
       { "command": "gtags-hopper.searchByGrep", "title": "Gtags Hopper: Search by Grep (Regex)" }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gtags-hopper",
+          "title": "Gtags Hopper",
+          "icon": "resources/gtags-hopper-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "gtags-hopper": [
+        {
+          "type": "webview",
+          "id": "gtagsHopperHistory",
+          "name": "Jump History"
+        }
+      ]
+    },
     "keybindings": [
       { "command": "gtags-hopper.jumpToDefinition", "key": "ctrl+alt+]", "when": "editorTextFocus" },
       { "command": "gtags-hopper.jumpBack", "key": "ctrl+alt+[", "when": "editorTextFocus" },
@@ -114,6 +132,18 @@
           "type": "boolean",
           "default": false,
           "description": "Whether to center cursor position in editor when jumping back from history. / ジャンプ履歴から戻ったとき、カーソル位置をエディターの中央に表示するか。"
+        },
+        "gtags-hopper.historyPanelTheme": {
+          "type": "string",
+          "enum": ["modern-dark", "modern-light", "colorful-dark", "colorful-light"],
+          "default": "modern-dark",
+          "enumDescriptions": [
+            "Modern dark theme (VSCode style)",
+            "Modern light theme",
+            "Colorful dark theme (gradient style)",
+            "Colorful light theme"
+          ],
+          "description": "Theme for the jump history panel. / ジャンプ履歴パネルのテーマ"
         }
       }
     }
