@@ -2,9 +2,12 @@
 // src/extension.ts
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
+import { promisify } from 'util';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { HistoryPanelProvider, HistoryItem } from './historyPanel';
+
+const execFileAsync = promisify(cp.execFile);
 
 // 正規表現のコンパイル最適化
 const GLOBAL_OUTPUT_REGEX = /^(\S+)\s+(\d+)\s+(\S+)\s+(.+)$/;
@@ -246,16 +249,31 @@ function findFirstDefinition(
   return null;
 }
 
-function execGlobalAsync(command: string, cwd: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    cp.exec(command, { cwd }, (error, stdout, stderr) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve(stdout);
-      }
+/**
+ * 【セキュリティ修正】シェルを経由しない安全なglobalコマンド実行
+ * child_process.execの代わりにexecFileを使用してコマンドインジェクションを防止
+ */
+async function execGlobalAsync(args: string[], cwd: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('global', args, {
+      cwd,
+      timeout: 10000,
+      maxBuffer: 10 * 1024 * 1024
     });
-  });
+    return stdout;
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      throw new Error('GNU GLOBAL (gtags) is not installed or not in PATH');
+    }
+    throw error;
+  }
+}
+
+/**
+ * 【セキュリティ修正】シェル引数を安全にエスケープ
+ */
+function escapeShellArg(arg: string): string {
+  return "'" + arg.replace(/'/g, "'\\''") + "'";
 }
 
 /**
@@ -483,7 +501,8 @@ export function activate(context: vscode.ExtensionContext) {
         progress.report({ increment: 0, message: 'Executing global command...' });
         
         try {
-          globalResult = await execGlobalAsync(`global -xa ${symbol}`, rootPath);
+          // 【セキュリティ修正】配列形式で引数を渡してコマンドインジェクションを防止
+          globalResult = await execGlobalAsync(['-xa', symbol], rootPath);
           
           progress.report({ increment: 40, message: 'Parsing global results...' });
           
@@ -775,7 +794,8 @@ export function activate(context: vscode.ExtensionContext) {
         cancellable: false
       }, async (progress) => {
         progress.report({ increment: 0, message: 'Executing global command...' });
-        globalResult = await execGlobalAsync(`global -rx ${symbol}`, rootPath);
+        // 【セキュリティ修正】配列形式で引数を渡してコマンドインジェクションを防止
+        globalResult = await execGlobalAsync(['-rx', symbol], rootPath);
         
         progress.report({ increment: 70, message: 'Processing results...' });
         
@@ -869,7 +889,8 @@ export function activate(context: vscode.ExtensionContext) {
       let terminal = getTerminalForCommand('listSymbolsInFile', rootPath, configCache);
 
       terminal.show(true);
-      terminal.sendText(`global -fx "${filePath}"`);
+      // 【セキュリティ修正】シェルエスケープを追加してコマンドインジェクションを防止
+      terminal.sendText(`global -fx ${escapeShellArg(filePath)}`);
 
     } catch (err) {
       vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
@@ -908,8 +929,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     terminal.show(true);
 
-    // global grepコマンド実行（シンプルにシングルクォート囲み）
-    terminal.sendText(`global -gx '${pattern}'`);
+    // 【セキュリティ修正】シェルエスケープを追加してコマンドインジェクションを防止
+    terminal.sendText(`global -gx ${escapeShellArg(pattern)}`);
   });
 
   /**
