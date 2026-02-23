@@ -1,11 +1,27 @@
+# ===== Node.js =====
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ===== VSCode extension build =====
 out/
 *.vsix
 
-.vscode/
+# ===== gtags generated files =====
 GTAGS
 GRTAGS
 GPATH
 
-gtags-test/
-gtags-test-gpt/
+# ===== VSCode =====
+.vscode/
+.vscode-test/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== misc =====
+*.log
+
+.vscodeignore

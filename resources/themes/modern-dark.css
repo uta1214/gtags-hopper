@@ -1,0 +1,21 @@
+body { background: #1e1e1e; color: #cccccc; }
+.header { background: #252526; border-bottom: 1px solid #3e3e42; padding: 6px 10px; }
+.header h3 { color: #cccccc; font-size: 12px; }
+.nav-btn { background: #0e639c; color: #ffffff; padding: 3px 8px; font-size: 10px; }
+.nav-btn:hover:not(:disabled) { background: #1177bb; }
+.nav-btn:disabled { opacity: 0.4; }
+.clear-btn { background: #0e639c; color: #ffffff; padding: 3px 8px; font-size: 10px; }
+.clear-btn:hover { background: #1177bb; }
+.search-container { background: #252526; border-bottom: 1px solid #3e3e42; padding: 6px 10px; }
+.search-input { background: #3c3c3c; color: #cccccc; border: 1px solid #3e3e42; padding: 5px 8px; }
+.search-input:focus { border-color: #007acc; }
+.search-input::placeholder { color: #858585; }
+.history-item { border-bottom: 1px solid #2d2d30; padding: 6px 10px; }
+.history-item:hover { background: #2a2d2e; }
+.history-item.current { background: #37373d; border-left: 3px solid #007acc; }
+.item-file { font-size: 11px; }
+.item-from { color: #858585; }
+.item-arrow { color: #858585; }
+.item-to { color: #9cdcfe; }
+.item-details { font-size: 10px; color: #858585; }
+.empty-message { color: #858585; }
