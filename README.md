@@ -16,6 +16,7 @@ Files open in the right editor column for easy side-by-side code comparison.
 - **List Symbols in File**: Display all symbols in current file
 - **Search by Grep**: Search using regular expressions
 - **Update Tags**: Regenerate gtags database
+- **Rebuild Tags**: Force full regeneration of gtags database (ignores incremental update setting)
 
 ### Jump History Panel
 - **Visual History Management**: Display jump history in sidebar
@@ -60,6 +61,8 @@ Default keybindings:
 | List Symbols       | `Ctrl+Alt+S` |
 | Update Tags        | `Ctrl+Alt+T` |
 | Search by Grep     | `Ctrl+Alt+G` |
+
+> **Rebuild Tags** (full regeneration) is available from the Command Palette only (`Ctrl+Shift+P` → `Gtags Hopper: Rebuild Tags`).
 
 ### How to Use History Panel
 1. Click Gtags Hopper icon in sidebar
@@ -107,6 +110,10 @@ Default keybindings:
 - `gtags-hopper.gtagsCommand`: Path to gtags command (searches PATH if empty)
 - `gtags-hopper.gtagsArgs`: Additional arguments for gtags execution
   - Example: `--gtagslabel=ctags --verbose`
+- `gtags-hopper.incrementalUpdate`: Use incremental update when GTAGS already exists
+  - `true`: Run `global -u` (incremental) if GTAGS exists, otherwise full regeneration
+  - `false`: Always run full regeneration
+  - Default: `true`
 
 #### Other Settings
 - `gtags-hopper.showSearchTime`: Display search time
@@ -162,6 +169,7 @@ https://github.com/uta1214/gtags-hopper
 - **ファイル内シンボル一覧** (`List Symbols in File`)
 - **Grep 検索** (`Search by Grep`)
 - **タグ更新** (`Update Tags`)
+- **タグ完全再生成** (`Rebuild Tags`)：差分更新設定に関わらず常にフル再生成
 
 ### ジャンプ履歴パネル
 - **視覚的な履歴管理**: サイドバーにジャンプ履歴を表示
@@ -206,6 +214,8 @@ https://github.com/uta1214/gtags-hopper
 | List Symbols       | `Ctrl+Alt+S` |
 | Update Tags        | `Ctrl+Alt+T` |
 | Search by Grep     | `Ctrl+Alt+G` |
+
+> **Rebuild Tags**（フル再生成）はコマンドパレットからのみ実行できます（`Ctrl+Shift+P` → `Gtags Hopper: Rebuild Tags`）。
 
 ### 履歴パネルの使い方
 1. サイドバーの Gtags Hopper アイコンをクリック
@@ -253,6 +263,10 @@ https://github.com/uta1214/gtags-hopper
 - `gtags-hopper.gtagsCommand`: gtags コマンドのパス（空の場合は PATH から検索）
 - `gtags-hopper.gtagsArgs`: gtags 実行時の追加引数
   - 例: `--gtagslabel=ctags --verbose`
+- `gtags-hopper.incrementalUpdate`: GTAGS が既に存在する場合に差分更新を使用する
+  - `true`：GTAGS が存在すれば `global -u`（差分更新）、なければフル生成
+  - `false`：常にフル再生成
+  - デフォルト: `true`
 
 #### その他
 - `gtags-hopper.showSearchTime`: 検索時間を表示

@@ -3,7 +3,7 @@
   "displayName": "Gtags Hopper",
   "publisher": "uta-orange-1214",
   "description": "Jump to definitions using GNU GLOBAL (gtags) and open them in the right editor column.",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "repository": {
     "type": "git",
     "url": "https://github.com/uta1214/gtags-hopper"
@@ -32,6 +32,7 @@
       { "command": "gtags-hopper.jumpToDefinition", "title": "Gtags Hopper: Jump to Definition" },
       { "command": "gtags-hopper.jumpBack", "title": "Gtags Hopper: Jump Back" },
       { "command": "gtags-hopper.updateTags", "title": "Gtags Hopper: Update Tags" },
+      { "command": "gtags-hopper.rebuildTags", "title": "Gtags Hopper: Rebuild Tags (Full Regeneration)" },
       { "command": "gtags-hopper.jumpToReferences", "title": "Gtags Hopper: Jump to References" },
       { "command": "gtags-hopper.listSymbolsInFile", "title": "Gtags Hopper: List Symbols in File" },
       { "command": "gtags-hopper.searchByGrep", "title": "Gtags Hopper: Search by Grep (Regex)" }
@@ -132,6 +133,11 @@
           "type": "boolean",
           "default": false,
           "description": "Whether to center cursor position in editor when jumping back from history. / ジャンプ履歴から戻ったとき、カーソル位置をエディターの中央に表示するか。"
+        },
+        "gtags-hopper.incrementalUpdate": {
+          "type": "boolean",
+          "default": true,
+          "description": "When GTAGS already exists, use 'global -u' for incremental update instead of full regeneration. / GTAGSが既に存在する場合、フル再生成の代わりに 'global -u' で差分更新を行う。"
         },
         "gtags-hopper.historyPanelTheme": {
           "type": "string",

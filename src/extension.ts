@@ -1,4 +1,3 @@
-// commit test2
 // src/extension.ts
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
@@ -947,16 +946,43 @@ export function activate(context: vscode.ExtensionContext) {
     // キャッシュされた設定値を使用
     const gtagsCmd = configCache.get<string>('gtagsCommand', '') || 'gtags';
     const gtagsArgs = configCache.get<string>('gtagsArgs', '');
+    const incrementalUpdate = configCache.get<boolean>('incrementalUpdate', true);
 
     const terminal = getTerminalForCommand('updateTags', rootPath, configCache);
     terminal.show(true);
 
-    // 設定に応じたコマンドを作成
-    const cmd = gtagsArgs ? `${gtagsCmd} ${gtagsArgs}` : gtagsCmd;
+    // 差分更新が有効かつGTAGSが存在する場合は global -u で差分更新
+    let cmd: string;
+    if (incrementalUpdate) {
+      const gtagsDbPath = path.join(rootPath, 'GTAGS');
+      const gtagsExists = await fs.access(gtagsDbPath).then(() => true).catch(() => false);
+      cmd = gtagsExists ? 'global -u' : (gtagsArgs ? `${gtagsCmd} ${gtagsArgs}` : gtagsCmd);
+    } else {
+      cmd = gtagsArgs ? `${gtagsCmd} ${gtagsArgs}` : gtagsCmd;
+    }
     terminal.sendText(cmd);
   });
 
-  // ステータスバーアイテムを作成（gtags更新コマンドを実行できるボタン）
+  /**
+   * gtagsデータベースフル再生成コマンド
+   * incrementalUpdate設定に関わらず常に gtags でフル再生成する
+   */
+  const rebuildTags = vscode.commands.registerCommand('gtags-hopper.rebuildTags', async () => {
+    const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!rootPath) {
+      vscode.window.showErrorMessage('No workspace folder found');
+      return;
+    }
+
+    const gtagsCmd = configCache.get<string>('gtagsCommand', '') || 'gtags';
+    const gtagsArgs = configCache.get<string>('gtagsArgs', '');
+
+    const terminal = getTerminalForCommand('updateTags', rootPath, configCache);
+    terminal.show(true);
+
+    const cmd = gtagsArgs ? `${gtagsCmd} ${gtagsArgs}` : gtagsCmd;
+    terminal.sendText(cmd);
+  });
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.text = '$(sync) Update Gtags';
   statusBarItem.tooltip = 'Update gtags database';
@@ -971,6 +997,7 @@ export function activate(context: vscode.ExtensionContext) {
     listSymbolsInFile,
     searchByGrep,
     updateTags,
+    rebuildTags,
     statusBarItem
   );
 }
