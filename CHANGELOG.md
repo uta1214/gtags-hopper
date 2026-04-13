@@ -2,6 +2,35 @@
 
 All notable changes to Gtags Hopper will be documented in this file.
 
+## [0.0.5] - 2026-04-13
+
+### Added
+- **Results Panel**: Search results (definitions, references, symbols, grep) now display in a dedicated bottom panel
+  - Preview files by hovering over results without leaving the panel
+  - Navigate with ↑↓ keys, confirm with Enter, cancel with Escape
+  - Automatically restores focus to the previous terminal or editor after jumping
+  - Configurable via `gtags-hopper.resultDisplayMode` (`panel` / `quickPick`, default: `panel`)
+  - Preview can be toggled via `gtags-hopper.showPreview` (default: `true`)
+- **WSL / Remote workspace support**: File path resolution now correctly handles WSL and remote environments
+
+### Changed
+- **Jump to References** now uses the Results Panel instead of QuickPick (consistent with other commands)
+- **List Symbols in File** now displays results in the Results Panel instead of terminal output (in `panel` mode)
+- **Search by Grep** now displays results in the Results Panel instead of terminal output (in `panel` mode)
+- Jump history now uses physical deletion instead of logical deletion, reducing long-term memory usage
+- Multi-root workspace support: file URIs are now resolved against the correct workspace folder
+
+### Fixed
+- Unreachable code branch in `List Symbols in File` removed
+- Inconsistent panel usage in `Search by Grep` unified with other commands
+
+### Security
+- Added Content Security Policy (CSP) to both Webview panels (history panel and results panel)
+- Fixed unescaped dynamic `RegExp` construction in local definition search (`escapeRegExp` added)
+- Removed debug `console.log` and `console.error` statements from production code
+
+---
+
 ## [0.0.4] - 2026-03-08
 
 ### Added

@@ -3,7 +3,7 @@
   "displayName": "Gtags Hopper",
   "publisher": "uta-orange-1214",
   "description": "Jump to definitions using GNU GLOBAL (gtags) and open them in the right editor column.",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "repository": {
     "type": "git",
     "url": "https://github.com/uta1214/gtags-hopper"
@@ -44,6 +44,13 @@
           "title": "Gtags Hopper",
           "icon": "resources/gtags-hopper-icon.svg"
         }
+      ],
+      "panel": [
+        {
+          "id": "gtags-hopper-results",
+          "title": "Gtags Hopper",
+          "icon": "resources/gtags-hopper-icon.svg"
+        }
       ]
     },
     "views": {
@@ -52,6 +59,13 @@
           "type": "webview",
           "id": "gtagsHopperHistory",
           "name": "Jump History"
+        }
+      ],
+      "gtags-hopper-results": [
+        {
+          "type": "webview",
+          "id": "gtagsHopperResults",
+          "name": "Definition Results"
         }
       ]
     },
@@ -138,6 +152,21 @@
           "type": "boolean",
           "default": true,
           "description": "When GTAGS already exists, use 'global -u' for incremental update instead of full regeneration. / GTAGSが既に存在する場合、フル再生成の代わりに 'global -u' で差分更新を行う。"
+        },
+        "gtags-hopper.resultDisplayMode": {
+          "type": "string",
+          "enum": ["panel", "quickPick"],
+          "default": "panel",
+          "enumDescriptions": [
+            "Show results in the bottom panel / 結果を下部パネルに表示",
+            "Show results in QuickPick dialog, terminal for grep/symbols / 結果をQuickPickダイアログで表示、grep/シンボルはターミナル"
+          ],
+          "description": "How to display search results. / 検索結果の表示方法。"
+        },
+        "gtags-hopper.showPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to show a preview of the file when hovering over results (applies to both panel and quickPick mode). / 結果にフォーカスを当てたときにファイルのプレビューを表示するか（panel・quickPick両方に適用）。"
         },
         "gtags-hopper.historyPanelTheme": {
           "type": "string",

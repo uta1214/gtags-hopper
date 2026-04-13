@@ -7,6 +7,7 @@ tsconfig.json
 tasks.json
 package-lock.json
 **/*.map
+.gitignore
 GPATH
 GRTAGS
 GTAGS

@@ -52,15 +52,6 @@ export class HistoryPanelProvider implements vscode.WebviewViewProvider {
     context: vscode.WebviewViewResolveContext,
     token: vscode.CancellationToken
   ) {
-    // デバッグ: 設定値を確認
-    const config = vscode.workspace.getConfiguration('gtags-hopper');
-    const allSettings = {
-      historyPanelTheme: config.get('historyPanelTheme'),
-      viewColumn: config.get('viewColumn'),
-      maxHistory: config.get('maxHistory')
-    };
-    console.log('All gtags-hopper settings:', JSON.stringify(allSettings, null, 2));
-
     this.view = webviewView;
 
     webviewView.webview.options = {
@@ -152,25 +143,14 @@ export class HistoryPanelProvider implements vscode.WebviewViewProvider {
 
   private getHtmlForWebview(webview: vscode.Webview): string {
     const theme = vscode.workspace.getConfiguration('gtags-hopper').get<string>('historyPanelTheme', 'modern-dark');
-
-    // デバッグ: テーマ名とパスをログ出力
-    console.log('Selected theme:', theme);
-    console.log('Extension URI:', this.extensionUri.fsPath);
-    
     const cssPath = path.join(this.extensionUri.fsPath, 'resources', 'themes', `${theme}.css`);
-    console.log('CSS Path:', cssPath);
-    
     const cssUri = webview.asWebviewUri(vscode.Uri.file(cssPath));
-    console.log('CSS URI:', cssUri.toString());
-    
-    // // 外部CSSファイルのURIを取得
-    // const cssPath = path.join(this.extensionUri.fsPath, 'resources', 'themes', `${theme}.css`);
-    // const cssUri = webview.asWebviewUri(vscode.Uri.file(cssPath));
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'unsafe-inline';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Jump History</title>
   <link rel="stylesheet" href="${cssUri}">

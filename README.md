@@ -115,6 +115,15 @@ Default keybindings:
   - `false`: Always run full regeneration
   - Default: `true`
 
+#### Result Display Settings
+- `gtags-hopper.resultDisplayMode`: How to display search results
+  - `panel`: Show results in the bottom panel (recommended)
+  - `quickPick`: Show results in QuickPick dialog; terminal output for grep/symbols
+  - Default: `panel`
+- `gtags-hopper.showPreview`: Show a file preview when hovering over results
+  - Applies to both `panel` and `quickPick` modes
+  - Default: `true`
+
 #### Other Settings
 - `gtags-hopper.showSearchTime`: Display search time
   - Default: `false`
@@ -266,6 +275,15 @@ https://github.com/uta1214/gtags-hopper
 - `gtags-hopper.incrementalUpdate`: GTAGS が既に存在する場合に差分更新を使用する
   - `true`：GTAGS が存在すれば `global -u`（差分更新）、なければフル生成
   - `false`：常にフル再生成
+  - デフォルト: `true`
+
+#### 結果表示設定
+- `gtags-hopper.resultDisplayMode`: 検索結果の表示方法
+  - `panel`：結果を下部パネルに表示（推奨）
+  - `quickPick`：QuickPickダイアログで表示、grep/シンボルはターミナル出力
+  - デフォルト: `panel`
+- `gtags-hopper.showPreview`: 結果にフォーカスを当てたときにファイルプレビューを表示する
+  - `panel`・`quickPick` 両方に適用される
   - デフォルト: `true`
 
 #### その他
