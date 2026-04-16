@@ -702,7 +702,7 @@ export function activate(context: vscode.ExtensionContext) {
             const itemsRaw = lines.map(line => {
               const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
               if (!m) return null;
-              const [, sym, lineNumStr, file, code] = m;
+              const [, , lineNumStr, file, code] = m;
               const lineNum = parseInt(lineNumStr, 10) - 1;
 
               if (/^\d+$/.test(file)) return null;
@@ -901,7 +901,6 @@ export function activate(context: vscode.ExtensionContext) {
     // キャッシュされた設定値を使用
     const maxHistory = configCache.get<number>('maxHistory', 50);
 
-    let globalResult = '';
     let items: any[] = [];
     try {
       // エディタ上部の青い進捗バーを使用
@@ -911,8 +910,7 @@ export function activate(context: vscode.ExtensionContext) {
         cancellable: false
       }, async (progress) => {
         progress.report({ increment: 0, message: 'Executing global command...' });
-        // 【セキュリティ修正】配列形式で引数を渡してコマンドインジェクションを防止
-        globalResult = await execGlobalAsync(['-rx', symbol], rootPath);
+        const globalResult = await execGlobalAsync(['-rx', symbol], rootPath);
         
         progress.report({ increment: 70, message: 'Processing results...' });
         
@@ -926,7 +924,7 @@ export function activate(context: vscode.ExtensionContext) {
         items = lines.map(line => {
           const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
           if (!m) return null;
-          const [, sym, lineNumStr, file, code] = m;
+          const [, , lineNumStr, file, code] = m;
           const relativePath = path.relative(rootPath, file);
 
           return {
@@ -1013,7 +1011,7 @@ export function activate(context: vscode.ExtensionContext) {
         terminal.show(true);
         terminal.sendText(`global -fx ${escapeShellArg(filePath)}`);
       } else {
-        // パネル or quickPick: まず結果を取得
+        // パネルモード: globalコマンドで結果を取得してパネルに表示
         const globalResult = await execGlobalAsync(['-fx', filePath], rootPath);
         const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
 
@@ -1102,7 +1100,7 @@ export function activate(context: vscode.ExtensionContext) {
         const items: ResultItem[] = lines.map(line => {
           const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
           if (!m) return null;
-          const [, sym, lineNumStr, file, code] = m;
+          const [, , lineNumStr, file, code] = m;
           const relativePath = path.relative(rootPath, file);
           return {
             label: `${relativePath}:${lineNumStr}`,

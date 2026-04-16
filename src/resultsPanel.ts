@@ -239,8 +239,8 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
         <li class="result-item"
             tabindex="0"
             data-index="\${i}"
-            onmouseenter="onFocus(\${i})"
-            onclick="onJump(\${i})">
+            onclick="onFocus(\${i})"
+            ondblclick="onJump(\${i})">
           <span class="item-location">\${escapeHtml(item.label)}</span>
           <span class="item-sep">│</span>
           <span class="item-code">\${escapeHtml(item.description)}</span>
