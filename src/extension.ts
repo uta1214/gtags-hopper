@@ -1,13 +1,10 @@
 // src/extension.ts
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
-import { promisify } from 'util';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { HistoryPanelProvider, HistoryItem } from './historyPanel';
 import { ResultsPanelProvider, ResultItem } from './resultsPanel';
-
-const execFileAsync = promisify(cp.execFile);
 
 // 正規表現のコンパイル最適化
 const GLOBAL_OUTPUT_REGEX = /^(\S+)\s+(\d+)\s+(\S+)\s+(.+)$/;
@@ -243,23 +240,53 @@ function findFirstDefinition(
 }
 
 /**
- * 【セキュリティ修正】シェルを経由しない安全なglobalコマンド実行
- * child_process.execの代わりにexecFileを使用してコマンドインジェクションを防止
+ * globalコマンドをユーザーのログインシェル経由で実行する
+ * execFileの直接実行ではVS Codeプロセスの環境変数しか引き継がれず、
+ * ユーザーが .bashrc / .zshrc 等で設定した GTAGSROOT / GTAGSDBPATH が
+ * 読み込まれないためパネルモードでのみコマンドが失敗する問題を修正。
+ * ログインシェル(-l)経由で実行することで環境変数を正しく引き継ぐ。
+ * 引数は escapeShellArg でエスケープしてインジェクションを防止。
  */
-async function execGlobalAsync(args: string[], cwd: string): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync('global', args, {
-      cwd,
-      timeout: 10000,
-      maxBuffer: 10 * 1024 * 1024
+async function execGlobalAsync(args: string[], cwd: string, globalCmd: string = 'global'): Promise<string> {
+  const userShell = process.env.SHELL || '/bin/bash';
+  const escapedArgs = args.map(a => escapeShellArg(a)).join(' ');
+  const cmd = `${escapeShellArg(globalCmd)} ${escapedArgs}`;
+
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+
+    const child = cp.spawn(userShell, ['-l', '-c', cmd], { cwd });
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+      reject(new Error('global command timed out'));
+    }, 10000);
+
+    child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+    child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+    child.on('close', (code: number | null) => {
+      if (timedOut) { return; }
+      clearTimeout(timer);
+      if (code !== 0) {
+        reject(new Error(`command failed: ${cmd}\n${stderr.trim()}`));
+      } else {
+        resolve(stdout);
+      }
     });
-    return stdout;
-  } catch (error: any) {
-    if (error.code === 'ENOENT') {
-      throw new Error('GNU GLOBAL (gtags) is not installed or not in PATH');
-    }
-    throw error;
-  }
+
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      if (err.code === 'ENOENT') {
+        reject(new Error('GNU GLOBAL (gtags) is not installed or not in PATH'));
+      } else {
+        reject(err);
+      }
+    });
+  });
 }
 
 /**
@@ -689,8 +716,8 @@ export function activate(context: vscode.ExtensionContext) {
         progress.report({ increment: 0, message: 'Executing global command...' });
         
         try {
-          // 【セキュリティ修正】配列形式で引数を渡してコマンドインジェクションを防止
-          globalResult = await execGlobalAsync(['-xa', symbol], rootPath);
+          const globalCmd = configCache.get<string>('gtagsCommand', '') || 'global';
+          globalResult = await execGlobalAsync(['-xa', symbol], rootPath, globalCmd);
           
           progress.report({ increment: 40, message: 'Parsing global results...' });
           
@@ -910,7 +937,8 @@ export function activate(context: vscode.ExtensionContext) {
         cancellable: false
       }, async (progress) => {
         progress.report({ increment: 0, message: 'Executing global command...' });
-        const globalResult = await execGlobalAsync(['-rx', symbol], rootPath);
+        const globalCmd = configCache.get<string>('gtagsCommand', '') || 'global';
+        const globalResult = await execGlobalAsync(['-rx', symbol], rootPath, globalCmd);
         
         progress.report({ increment: 70, message: 'Processing results...' });
         
@@ -940,6 +968,21 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (items.length === 0) {
         vscode.window.showInformationMessage(`No references found for: ${symbol}`);
+        return;
+      }
+
+      // 結果が1件の場合はdisplayModeに関わらず即ジャンプ（jumpToDefinitionと同じ挙動）
+      if (items.length === 1) {
+        const item = items[0];
+        const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(rootPath));
+        const ed = await vscode.window.showTextDocument(
+          await vscode.workspace.openTextDocument(uri),
+          { viewColumn: vscode.ViewColumn.Two, preview: false, preserveFocus: false }
+        );
+        const pos = new vscode.Position(item.line, 0);
+        ed.selection = new vscode.Selection(pos, pos);
+        ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+        addToHistory(document.uri, position, editor.viewColumn, ed.document.uri, pos, symbol, maxHistory);
         return;
       }
 
@@ -1005,14 +1048,16 @@ export function activate(context: vscode.ExtensionContext) {
     try {
       const displayMode = configCache.get<string>('resultDisplayMode', 'panel');
 
+      const globalCmd = configCache.get<string>('gtagsCommand', '') || 'global';
+
       if (displayMode === 'quickPick') {
         // ターミナルに出力（従来動作）
         let terminal = getTerminalForCommand('listSymbolsInFile', rootPath, configCache);
         terminal.show(true);
-        terminal.sendText(`global -fx ${escapeShellArg(filePath)}`);
+        terminal.sendText(`${globalCmd} -fx ${escapeShellArg(filePath)}`);
       } else {
         // パネルモード: globalコマンドで結果を取得してパネルに表示
-        const globalResult = await execGlobalAsync(['-fx', filePath], rootPath);
+        const globalResult = await execGlobalAsync(['-fx', filePath], rootPath, globalCmd);
         const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
 
         if (lines.length === 0) {
@@ -1081,15 +1126,17 @@ export function activate(context: vscode.ExtensionContext) {
 
     const displayMode = configCache.get<string>('resultDisplayMode', 'panel');
 
+    const globalCmd = configCache.get<string>('gtagsCommand', '') || 'global';
+
     if (displayMode === 'quickPick') {
       // ターミナルに出力（従来動作）
       let terminal = getTerminalForCommand('searchByGrep', rootPath, configCache);
       terminal.show(true);
-      terminal.sendText(`global -gx ${escapeShellArg(pattern)}`);
+      terminal.sendText(`${globalCmd} -gx ${escapeShellArg(pattern)}`);
     } else {
       // パネルに結果を表示
       try {
-        const globalResult = await execGlobalAsync(['-gx', pattern], rootPath);
+        const globalResult = await execGlobalAsync(['-gx', pattern], rootPath, globalCmd);
         const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
 
         if (lines.length === 0) {

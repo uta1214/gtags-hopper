@@ -3,7 +3,7 @@
   "displayName": "Gtags Hopper",
   "publisher": "uta-orange-1214",
   "description": "Jump to definitions using GNU GLOBAL (gtags) and open them in the right editor column.",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "repository": {
     "type": "git",
     "url": "https://github.com/uta1214/gtags-hopper"
@@ -13,7 +13,7 @@
     "vscode": "^1.56.0"
   },
   "activationEvents": [
-    "*"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "scripts": {
