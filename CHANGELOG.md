@@ -2,6 +2,43 @@
 
 All notable changes to Gtags Hopper will be documented in this file.
 
+## [0.0.9] - 2026-05-08
+
+### Fixed
+- **Results panel not clearing on single-result jump**: When jumping to a symbol with only one definition or reference (or when `multipleResultAction` is `firstMatch`), the results panel was not cleared and kept showing the previous multi-result list; fixed by calling `clearResults()` after the jump in the gtags single-result path, the local fallback path, and the Jump to References single-result path
+- **Escape key ignored in results panel when no items loaded**: The keydown handler's early return on `items.length === 0` also blocked the Escape key, making it impossible to cancel a streaming search (Grep, List Symbols) before the first results arrived; fixed by handling Escape before the length check
+- **Auto-update tags on save ignoring `gtagsCommand` setting**: The background `global -u` call on file save hardcoded `'global'` instead of reading the `gtags-hopper.gtagsCommand` setting; users with a custom gtags path were not affected by auto-update
+
+### Changed
+- **Dead Escape handler removed from results panel**: The `else if (e.key === 'Escape')` branch inside the keydown handler was unreachable after the above fix and has been removed
+- **`pendingShow` queue now preserves `title` and `autoPreview`**: When the results panel is not yet resolved and `showResults` is called, the `title` and `autoPreview` parameters are now stored in the queue and correctly applied when the panel resolves
+
+---
+
+## [0.0.8] - 2026-05-02
+
+### Added
+- **Streaming results for List Symbols and Search by Grep**: Results now appear in the panel progressively as they arrive instead of waiting for the full output
+- **Jump highlight**: A brief line highlight now flashes on the destination line after every jump, including Jump Back
+- **`resolveViewColumn()` helper**: Shared view-column resolution logic extracted into a common helper; `viewColumn` setting is now respected consistently across all commands and previews
+
+### Fixed
+- **`viewColumn` and `usePreviewTab` settings ignored for panel-mode previews**: File previews in the results panel were hardcoded to Column 2; now uses `resolveViewColumn()` consistently
+- **WSL / Remote URI broken in `openFileAtPosition`**: File URIs were constructed with `vscode.Uri.file()`, breaking WSL Remote sessions; fixed by using `resolveFileUri()` to preserve the workspace scheme
+- **`existingEditor` view column ignored**: When reopening an already-visible file, the editor's own column was used instead of the configured `viewColumn`; now uses `resolveViewColumn()`
+
+### Changed
+- **`execGlobalAsync` timeout removed**: The 10-second hard timeout was removed; long-running searches no longer fail with a timeout error
+
+---
+
+## [0.0.7] - 2026-05-02
+
+### Fixed
+- **Jump to References not jumping immediately on single result**: When only one reference was found, the result was not treated as a single match and immediate jump did not occur; fixed to jump directly without showing the panel or dialog, consistent with Jump to Definition behavior
+
+---
+
 ## [0.0.6] - 2026-05-02
 
 ### Added

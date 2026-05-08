@@ -522,7 +522,8 @@ export function activate(context: vscode.ExtensionContext) {
     statusBarItem.text = '$(sync~spin) Updating tags...';
 
     try {
-      await execGlobalAsync(['-u'], rootPath, 'global');
+      const globalCmd = configCache.get<string>('gtagsCommand', '') || 'global';
+      await execGlobalAsync(['-u'], rootPath, globalCmd);
       statusBarItem.text = '$(check) Tags updated';
       setTimeout(() => {
         statusBarItem.text = '$(sync) Update Gtags';
@@ -945,6 +946,9 @@ export function activate(context: vscode.ExtensionContext) {
             // ジャンプ実行
             await openFileAtPosition(localItem, rootPath, isLocalFile);
             
+            // 1件ジャンプ時はパネルをリセット
+            resultsProvider.clearResults();
+
             // ジャンプ後、履歴に追加
             const newEditor = vscode.window.activeTextEditor;
             if (newEditor) {
@@ -983,6 +987,8 @@ export function activate(context: vscode.ExtensionContext) {
         
         // ジャンプ実行
         await openFileAtPosition(filteredItems[0], rootPath, isLocalFile);
+        // 1件ジャンプ時はパネルをリセット
+        resultsProvider.clearResults();
         const newEditor = vscode.window.activeTextEditor;
         if (newEditor) {
           addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);
@@ -1132,6 +1138,8 @@ export function activate(context: vscode.ExtensionContext) {
       if (items.length === 1) {
         const item = items[0];
         await openFileAtPosition(item, rootPath, false);
+        // 1件ジャンプ時はパネルをリセット
+        resultsProvider.clearResults();
         const newEditor = vscode.window.activeTextEditor;
         if (newEditor) {
           addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);

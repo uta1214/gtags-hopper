@@ -26,6 +26,8 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
     onPreview: (item: ResultItem) => void;
     onJump: (item: ResultItem) => void;
     onCancel: () => void;
+    title?: string;
+    autoPreview?: boolean;
   };
 
   // 現在登録されているコールバック
@@ -66,9 +68,9 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
 
     // キューに積まれた結果があれば表示
     if (this.pendingShow) {
-      const { symbol, items, onPreview, onJump, onCancel } = this.pendingShow;
+      const { symbol, items, onPreview, onJump, onCancel, title, autoPreview } = this.pendingShow;
       this.pendingShow = undefined;
-      this.showResults(symbol, items, onPreview, onJump, onCancel);
+      this.showResults(symbol, items, onPreview, onJump, onCancel, title, autoPreview);
     }
   }
 
@@ -90,7 +92,7 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
     this.onCancelCallback = onCancel;
 
     if (!this.view) {
-      this.pendingShow = { symbol, items, onPreview, onJump, onCancel };
+      this.pendingShow = { symbol, items, onPreview, onJump, onCancel, title, autoPreview };
       return;
     }
 
@@ -303,6 +305,10 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
 
     // キーボード操作（上下端で循環）
     document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        vscode.postMessage({ type: 'cancel' });
+        return;
+      }
       if (items.length === 0) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -314,8 +320,6 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
         setFocus(focusedIndex <= 0 ? items.length - 1 : focusedIndex - 1, true);
       } else if (e.key === 'Enter') {
         onJump(focusedIndex);
-      } else if (e.key === 'Escape') {
-        vscode.postMessage({ type: 'cancel' });
       }
     });
 
