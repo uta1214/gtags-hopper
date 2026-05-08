@@ -82,7 +82,8 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
     onPreview: (item: ResultItem) => void,
     onJump: (item: ResultItem) => void,
     onCancel: () => void,
-    title?: string
+    title?: string,
+    autoPreview?: boolean
   ) {
     this.onPreviewCallback = onPreview;
     this.onJumpCallback = onJump;
@@ -93,7 +94,11 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    this.view.webview.postMessage({ type: 'showResults', symbol, items, title });
+    this.view.webview.postMessage({ type: 'showResults', symbol, items, title, autoPreview: autoPreview !== false });
+  }
+
+  public appendResults(items: ResultItem[]) {
+    this.view?.webview.postMessage({ type: 'appendResults', items });
   }
 
   /**
@@ -183,6 +188,8 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
       font-weight: 500;
       white-space: nowrap;
       flex-shrink: 0;
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      width: var(--label-width, auto);
     }
     .item-sep {
       font-size: 11px;
@@ -212,8 +219,22 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
     const vscode = acquireVsCodeApi();
     let items = [];
     let focusedIndex = -1;
+    let currentAutoPreview = true; // showResultsで設定、appendResultsで参照
 
-    function render(symbol, newItems, title) {
+    // ラベル列の幅をアイテム全体の最大長（上限30ch）に合わせて更新
+    function updateLabelWidth() {
+      if (items.length === 0) return;
+      const max = Math.min(30, Math.max(...items.map(i => i.label.length)));
+      document.getElementById('resultsList').style.setProperty('--label-width', max + 'ch');
+    }
+
+    // ラベルが30文字を超える場合は左側を省略（ファイル名末尾を優先表示）
+    function truncateLabel(label, maxLen) {
+      if (label.length <= maxLen) return label;
+      return '\u2026' + label.slice(-(maxLen - 1));
+    }
+
+    function render(symbol, newItems, title, autoPreview) {
       items = newItems;
       focusedIndex = -1;
 
@@ -228,6 +249,7 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
         count.textContent = '';
         empty.style.display = 'block';
         list.style.display = 'none';
+        list.innerHTML = '';
         return;
       }
 
@@ -241,14 +263,15 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
             data-index="\${i}"
             onclick="onFocus(\${i})"
             ondblclick="onJump(\${i})">
-          <span class="item-location">\${escapeHtml(item.label)}</span>
+          <span class="item-location" title="\${escapeHtml(item.label)}">\${escapeHtml(truncateLabel(item.label, 30))}</span>
           <span class="item-sep">│</span>
           <span class="item-code">\${escapeHtml(item.description)}</span>
         </li>
       \`).join('');
 
-      // 最初のアイテムにフォーカスしてプレビュー
-      setFocus(0, true);
+      // autoPreview=trueのときだけ最初のアイテムにフォーカスしてプレビュー
+      setFocus(0, autoPreview);
+      updateLabelWidth();
     }
 
     function setFocus(index, preview) {
@@ -278,15 +301,17 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
       vscode.postMessage({ type: 'jump', item: items[index] });
     }
 
-    // キーボード操作
+    // キーボード操作（上下端で循環）
     document.addEventListener('keydown', e => {
       if (items.length === 0) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setFocus(Math.min(focusedIndex + 1, items.length - 1), true);
+        // 末尾なら先頭へ
+        setFocus(focusedIndex >= items.length - 1 ? 0 : focusedIndex + 1, true);
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setFocus(Math.max(focusedIndex - 1, 0), true);
+        // 先頭なら末尾へ
+        setFocus(focusedIndex <= 0 ? items.length - 1 : focusedIndex - 1, true);
       } else if (e.key === 'Enter') {
         onJump(focusedIndex);
       } else if (e.key === 'Escape') {
@@ -303,12 +328,43 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
     window.addEventListener('message', event => {
       const msg = event.data;
       if (msg.type === 'showResults') {
-        render(msg.symbol, msg.items, msg.title);
-        // 結果表示後にリストへキーボードフォーカスを当てる
-        setTimeout(() => {
-          const list = document.getElementById('resultsList');
-          if (list) list.focus();
-        }, 50);
+        currentAutoPreview = msg.autoPreview !== false;
+        render(msg.symbol, msg.items, msg.title, currentAutoPreview);
+        // autoPreview=trueのときだけリストにキーボードフォーカスを当てる
+        if (currentAutoPreview) {
+          setTimeout(() => {
+            const list = document.getElementById('resultsList');
+            if (list) list.focus();
+          }, 50);
+        }
+      } else if (msg.type === 'appendResults') {
+        // ストリーミング追記
+        items = items.concat(msg.items);
+        const count = document.getElementById('headerCount');
+        const empty = document.getElementById('emptyMessage');
+        const list  = document.getElementById('resultsList');
+
+        if (count) { count.textContent = items.length + ' found'; }
+        empty.style.display = 'none';
+        list.style.display = 'block';
+
+        const fragment = msg.items.map((item, i) => {
+          const idx = items.length - msg.items.length + i;
+          return \`<li class="result-item" tabindex="0" data-index="\${idx}"
+            onclick="onFocus(\${idx})" ondblclick="onJump(\${idx})">
+            <span class="item-location" title="\${escapeHtml(item.label)}">\${escapeHtml(truncateLabel(item.label, 30))}</span>
+            <span class="item-sep">│</span>
+            <span class="item-code">\${escapeHtml(item.description)}</span>
+          </li>\`;
+        }).join('');
+        list.insertAdjacentHTML('beforeend', fragment);
+
+        // 最初のアイテム受信時にフォーカス（currentAutoPreviewがtrueなら）
+        if (items.length === msg.items.length && currentAutoPreview) {
+          setFocus(0, true);
+          setTimeout(() => { list.focus(); }, 50);
+        }
+        updateLabelWidth();
       } else if (msg.type === 'clearResults') {
         items = [];
         focusedIndex = -1;

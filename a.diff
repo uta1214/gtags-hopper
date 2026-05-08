@@ -1,0 +1,1181 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 857f34a..643bc85 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,27 @@
+ 
+ All notable changes to Gtags Hopper will be documented in this file.
+ 
++## [0.0.6] - 2026-05-02
++
++### Added
++- **Panel auto-focus settings**: New `gtags-hopper.symbolsPanelAutoFocus` and `gtags-hopper.grepPanelAutoFocus` settings to control whether the results panel receives focus automatically when List Symbols or Search by Grep is executed (default: `false`)
++- **Jump history for List Symbols and Search by Grep**: Jumping from the results panel now adds an entry to the jump history, enabling Jump Back to work from all commands
++- **Auto-update tags on save enabled by default**: `gtags-hopper.autoUpdateTagsOnSave` now defaults to `true`
++
++### Fixed
++- **Jump to References (Ctrl+Alt+R) not working**: `execGlobalStreaming` return value was not awaited correctly; fixed by properly destructuring `{ promise }` and awaiting it
++- **List Symbols panel showing overlapping content**: Previous search results remained in DOM when a new streaming search started with an empty initial list; fixed by clearing `innerHTML` on empty render
++- **WSL/Remote file open error in QuickPick mode**: File URIs were constructed using `vscode.Uri.file()` which forces the `file://` scheme, breaking WSL Remote sessions; fixed by using `Uri.with({ path: ... })` to preserve the workspace URI scheme
++- **QuickPick preview closing existing editor tabs**: `previewWasAlreadyOpen` check was missing in `showQuickPickMaybePreview`; cancelling the picker no longer closes tabs that were already open before the preview
++- **`viewColumn` setting ignored for References, Symbols, and Grep**: Jump confirmation in these commands used hardcoded `ViewColumn.Two`; all jump paths now go through `openFileAtPosition` which respects the setting
++- **`viewColumn` setting ignored for previews**: File previews shown while navigating results were also hardcoded to Column 2; now uses `resolveViewColumn()` consistently
++- **`usePreviewTab` setting ignored for References, Symbols, and Grep**: Confirmed jumps always opened normal tabs; now routed through `openFileAtPosition` which reads the setting
++- **Double-click jump leaving highlight**: Clicking an item twice sent a `preview` message (async) followed immediately by a `jump` message; a `previewToken` counter now invalidates any in-flight `showHighlight` call when a jump is confirmed
++- **`execGlobalStreaming` not escaping `globalCmd`**: The custom gtags command path was passed directly into the shell string without `escapeShellArg`, unlike `execGlobalAsync`; fixed for consistency
++
++### Changed
++- **`multipleResultAction` description updated**: Setting description now clarifies that `quickPick` shows results in the panel or dialog depending on `resultDisplayMode`, not just a dialog
++
+ ## [0.0.5] - 2026-04-13
+ 
+ ### Added
+diff --git a/README.md b/README.md
+index bf3e6fe..3d8f896 100644
+--- a/README.md
++++ b/README.md
+@@ -88,9 +88,9 @@ Default keybindings:
+ 
+ #### Search Behavior
+ - `gtags-hopper.multipleResultAction`: Action when multiple results found
+-  - `quickPick`: Show selection dialog
++  - `show`: Show results in panel or dialog (depending on `resultDisplayMode`)
+   - `firstMatch`: Jump to first result automatically
+-  - Default: `quickPick`
++  - Default: `show`
+ 
+ #### History Settings
+ - `gtags-hopper.maxHistory`: Maximum number of jump history entries
+@@ -101,10 +101,14 @@ Default keybindings:
+   - Choose from `modern-dark`, `modern-light`, `colorful-dark`, `colorful-light`
+   - Default: `modern-dark`
+ 
++#### Auto Update Settings
++- `gtags-hopper.autoUpdateTagsOnSave`: Automatically update tags on file save
++  - Default: `true`
++
+ #### Terminal Settings
+-- `gtags-hopper.updateTagsTerminalNew`: Create new terminal for Update Tags
+-- `gtags-hopper.listSymbolsInFileTerminalNew`: Create new terminal for List Symbols
+-- `gtags-hopper.searchByGrepTerminalNew`: Create new terminal for Search by Grep
++- `gtags-hopper.updateTagsTerminalNew`: Create new terminal for Update Tags and Rebuild Tags
++- `gtags-hopper.listSymbolsInFileTerminalNew`: Create new terminal for List Symbols (applies when `resultDisplayMode` is `quickPick`)
++- `gtags-hopper.searchByGrepTerminalNew`: Create new terminal for Search by Grep (applies when `resultDisplayMode` is `quickPick`)
+ 
+ #### Gtags Settings
+ - `gtags-hopper.gtagsCommand`: Path to gtags command (searches PATH if empty)
+@@ -123,6 +127,10 @@ Default keybindings:
+ - `gtags-hopper.showPreview`: Show a file preview when hovering over results
+   - Applies to both `panel` and `quickPick` modes
+   - Default: `true`
++- `gtags-hopper.symbolsPanelAutoFocus`: Auto-focus the results panel when List Symbols is executed (applies when `resultDisplayMode` is `panel`)
++  - Default: `false`
++- `gtags-hopper.grepPanelAutoFocus`: Auto-focus the results panel when Search by Grep is executed (applies when `resultDisplayMode` is `panel`)
++  - Default: `false`
+ 
+ #### Other Settings
+ - `gtags-hopper.showSearchTime`: Display search time
+@@ -250,9 +258,9 @@ https://github.com/uta1214/gtags-hopper
+ 
+ #### 検索動作
+ - `gtags-hopper.multipleResultAction`: 複数結果がある場合の動作
+-  - `quickPick`: 選択ダイアログを表示
++  - `show`: 結果をパネルまたはダイアログに表示（`resultDisplayMode` の設定に従う）
+   - `firstMatch`: 最初の結果に自動ジャンプ
+-  - デフォルト: `quickPick`
++  - デフォルト: `show`
+ 
+ #### 履歴設定
+ - `gtags-hopper.maxHistory`: ジャンプ履歴の最大保持数
+@@ -263,10 +271,14 @@ https://github.com/uta1214/gtags-hopper
+   - `modern-dark`, `modern-light`, `colorful-dark`, `colorful-light` から選択
+   - デフォルト: `modern-dark`
+ 
++#### 自動更新設定
++- `gtags-hopper.autoUpdateTagsOnSave`: ファイル保存時にタグを自動更新する
++  - デフォルト: `true`
++
+ #### ターミナル設定
+-- `gtags-hopper.updateTagsTerminalNew`: Update Tags 用の新規ターミナル作成
+-- `gtags-hopper.listSymbolsInFileTerminalNew`: List Symbols 用の新規ターミナル作成
+-- `gtags-hopper.searchByGrepTerminalNew`: Search by Grep 用の新規ターミナル作成
++- `gtags-hopper.updateTagsTerminalNew`: Update Tags・Rebuild Tags 用の新規ターミナル作成
++- `gtags-hopper.listSymbolsInFileTerminalNew`: List Symbols 用の新規ターミナル作成（`resultDisplayMode` が `quickPick` のときのみ有効）
++- `gtags-hopper.searchByGrepTerminalNew`: Search by Grep 用の新規ターミナル作成（`resultDisplayMode` が `quickPick` のときのみ有効）
+ 
+ #### Gtags 設定
+ - `gtags-hopper.gtagsCommand`: gtags コマンドのパス（空の場合は PATH から検索）
+@@ -285,6 +297,10 @@ https://github.com/uta1214/gtags-hopper
+ - `gtags-hopper.showPreview`: 結果にフォーカスを当てたときにファイルプレビューを表示する
+   - `panel`・`quickPick` 両方に適用される
+   - デフォルト: `true`
++- `gtags-hopper.symbolsPanelAutoFocus`: List Symbols 実行時に結果パネルを自動でフォーカスするか（`resultDisplayMode` が `panel` のときのみ有効）
++  - デフォルト: `false`
++- `gtags-hopper.grepPanelAutoFocus`: Search by Grep 実行時に結果パネルを自動でフォーカスするか（`resultDisplayMode` が `panel` のときのみ有効）
++  - デフォルト: `false`
+ 
+ #### その他
+ - `gtags-hopper.showSearchTime`: 検索時間を表示
+diff --git a/package.json b/package.json
+index c2e9f96..2a673dd 100644
+--- a/package.json
++++ b/package.json
+@@ -3,7 +3,7 @@
+   "displayName": "Gtags Hopper",
+   "publisher": "uta-orange-1214",
+   "description": "Jump to definitions using GNU GLOBAL (gtags) and open them in the right editor column.",
+-  "version": "0.0.7",
++  "version": "0.0.8",
+   "repository": {
+     "type": "git",
+     "url": "https://github.com/uta1214/gtags-hopper"
+@@ -91,6 +91,11 @@
+       "type": "object",
+       "title": "Gtags Hopper Settings",
+       "properties": {
++        "gtags-hopper.autoUpdateTagsOnSave": {
++          "type": "boolean",
++          "default": true,
++          "description": "Automatically run 'global -u' in the background when a file is saved. Requires GTAGS to already exist. / ファイル保存時に自動で 'global -u' をバックグラウンド実行する。GTAGSが既に存在している必要がある。"
++        },
+         "gtags-hopper.viewColumn": {
+           "type": "string",
+           "enum": ["first", "second", "third", "active", "beside"],
+@@ -104,9 +109,9 @@
+         },
+         "gtags-hopper.multipleResultAction": {
+           "type": "string",
+-          "enum": ["quickPick", "firstMatch"],
+-          "default": "quickPick",
+-          "description": "Action when multiple search results are found. quickPick = show selection dialog, firstMatch = jump to first result automatically / 検索結果が複数ある場合の動作。quickPick = 選択ダイアログを表示、firstMatch = 最初に見つかった結果に自動ジャンプ"
++          "enum": ["show", "firstMatch"],
++          "default": "show",
++          "description": "Action when multiple search results are found. show = show results in panel or dialog (depending on resultDisplayMode), firstMatch = jump to first result automatically / 検索結果が複数ある場合の動作。show = 結果をパネルまたはダイアログに表示（resultDisplayModeの設定に従う）、firstMatch = 最初に見つかった結果に自動ジャンプ"
+         },
+         "gtags-hopper.maxHistory": {
+           "type": "number",
+@@ -121,17 +126,17 @@
+         "gtags-hopper.updateTagsTerminalNew": {
+           "type": "boolean",
+           "default": false,
+-          "description": "Whether to create a new terminal for UpdateTags command / UpdateTags コマンドで新規ターミナルを作るか"
++          "description": "Whether to create a new terminal for Update Tags and Rebuild Tags commands / Update Tags・Rebuild Tags コマンドで新規ターミナルを作るか"
+         },
+         "gtags-hopper.listSymbolsInFileTerminalNew": {
+           "type": "boolean",
+           "default": false,
+-          "description": "Whether to create a new terminal for ListSymbolsInFile command / ListSymbolsInFile コマンドで新規ターミナルを作るか"
++          "description": "Whether to create a new terminal for ListSymbolsInFile command (applies when resultDisplayMode is quickPick) / ListSymbolsInFile コマンドで新規ターミナルを作るか（resultDisplayMode が quickPick のときのみ有効）"
+         },
+         "gtags-hopper.searchByGrepTerminalNew": {
+           "type": "boolean",
+           "default": false,
+-          "description": "Whether to create a new terminal for SearchByGrep command / SearchByGrep コマンドで新規ターミナルを作るか"
++          "description": "Whether to create a new terminal for SearchByGrep command (applies when resultDisplayMode is quickPick) / SearchByGrep コマンドで新規ターミナルを作るか（resultDisplayMode が quickPick のときのみ有効）"
+         },
+         "gtags-hopper.gtagsCommand": {
+           "type": "string",
+@@ -179,6 +184,16 @@
+             "Colorful light theme"
+           ],
+           "description": "Theme for the jump history panel. / ジャンプ履歴パネルのテーマ"
++        },
++        "gtags-hopper.symbolsPanelAutoFocus": {
++          "type": "boolean",
++          "default": false,
++          "description": "Whether to automatically focus the results panel when List Symbols is executed (applies when resultDisplayMode is panel). / List Symbols 実行時に結果パネルを自動でフォーカスするか（resultDisplayMode が panel のときのみ有効）。"
++        },
++        "gtags-hopper.grepPanelAutoFocus": {
++          "type": "boolean",
++          "default": false,
++          "description": "Whether to automatically focus the results panel when Search by Grep is executed (applies when resultDisplayMode is panel). / Search by Grep 実行時に結果パネルを自動でフォーカスするか（resultDisplayMode が panel のときのみ有効）。"
+         }
+       }
+     }
+diff --git a/src/extension.ts b/src/extension.ts
+index 4a9f511..e5ef6d0 100644
+--- a/src/extension.ts
++++ b/src/extension.ts
+@@ -255,22 +255,13 @@ async function execGlobalAsync(args: string[], cwd: string, globalCmd: string =
+   return new Promise((resolve, reject) => {
+     let stdout = '';
+     let stderr = '';
+-    let timedOut = false;
+ 
+     const child = cp.spawn(userShell, ['-l', '-c', cmd], { cwd });
+ 
+-    const timer = setTimeout(() => {
+-      timedOut = true;
+-      child.kill();
+-      reject(new Error('global command timed out'));
+-    }, 10000);
+-
+     child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+     child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+ 
+     child.on('close', (code: number | null) => {
+-      if (timedOut) { return; }
+-      clearTimeout(timer);
+       if (code !== 0) {
+         reject(new Error(`command failed: ${cmd}\n${stderr.trim()}`));
+       } else {
+@@ -279,7 +270,6 @@ async function execGlobalAsync(args: string[], cwd: string, globalCmd: string =
+     });
+ 
+     child.on('error', (err: NodeJS.ErrnoException) => {
+-      clearTimeout(timer);
+       if (err.code === 'ENOENT') {
+         reject(new Error('GNU GLOBAL (gtags) is not installed or not in PATH'));
+       } else {
+@@ -304,6 +294,98 @@ function escapeRegExp(s: string): string {
+   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+ }
+ 
++/**
++ * ジャンプ先の行を一瞬ハイライトする（beacon.nvim風）
++ * DecorationTypeはextension全体で1つ使い回す
++ */
++const jumpHighlightDecoration = vscode.window.createTextEditorDecorationType({
++  backgroundColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
++  isWholeLine: true,
++});
++
++// 現在ハイライト中のエディタを追跡
++let highlightedEditor: vscode.TextEditor | undefined;
++
++/** プレビュー中に常時表示するハイライト（消えない） */
++function showHighlight(editor: vscode.TextEditor, pos: vscode.Position) {
++  highlightedEditor = editor;
++  editor.setDecorations(jumpHighlightDecoration, [new vscode.Range(pos, pos)]);
++}
++
++/** ハイライトを即座に消す（確定・キャンセル時） */
++function clearHighlight() {
++  if (highlightedEditor) {
++    highlightedEditor.setDecorations(jumpHighlightDecoration, []);
++    highlightedEditor = undefined;
++  }
++}
++
++/** 1件即ジャンプ専用: 500ms だけ光らせて消える */
++function flashHighlight(editor: vscode.TextEditor, pos: vscode.Position) {
++  editor.setDecorations(jumpHighlightDecoration, [new vscode.Range(pos, pos)]);
++  setTimeout(() => {
++    editor.setDecorations(jumpHighlightDecoration, []);
++  }, 500);
++}
++
++/**
++ * globalコマンドをストリーミング実行し、行が揃うたびにコールバックを呼ぶ
++ * cancel()を呼ぶことでプロセスを中断できる
++ */
++function execGlobalStreaming(
++  args: string[],
++  cwd: string,
++  globalCmd: string = 'global',
++  onLines: (lines: string[]) => void
++): { promise: Promise<void>; cancel: () => void } {
++  const userShell = process.env.SHELL || '/bin/bash';
++  const escapedArgs = args.map(a => escapeShellArg(a)).join(' ');
++  const cmd = `${escapeShellArg(globalCmd)} ${escapedArgs}`;
++
++  let cancelled = false;
++  let childProcess: cp.ChildProcess | undefined;
++
++  const cancel = () => {
++    cancelled = true;
++    childProcess?.kill();
++  };
++
++  const promise = new Promise<void>((resolve, reject) => {
++    let buffer = '';
++
++    const child = cp.spawn(userShell, ['-l', '-c', cmd], { cwd });
++    childProcess = child;
++
++    child.stdout.on('data', (data: Buffer) => {
++      if (cancelled) { return; }
++      buffer += data.toString();
++      const parts = buffer.split('\n');
++      buffer = parts.pop() ?? '';
++      const lines = parts.filter(l => l.trim() !== '');
++      if (lines.length > 0) { onLines(lines); }
++    });
++
++    child.on('close', (code: number | null) => {
++      if (cancelled) { resolve(); return; } // キャンセル時は正常終了扱い
++      if (buffer.trim() !== '') { onLines([buffer.trim()]); }
++      if (code !== 0 && code !== null) {
++        reject(new Error(`command failed: ${cmd}`));
++      } else {
++        resolve();
++      }
++    });
++
++    child.on('error', (err: NodeJS.ErrnoException) => {
++      if (cancelled) { resolve(); return; }
++      reject(err.code === 'ENOENT'
++        ? new Error('GNU GLOBAL (gtags) is not installed or not in PATH')
++        : err);
++    });
++  });
++
++  return { promise, cancel };
++}
++
+ /**
+  * コマンド用ターミナル取得関数
+  * 設定に応じた新規作成/既存利用を決定
+@@ -348,10 +430,21 @@ function getTerminalForCommand(
+ /**
+  * マルチルートワークスペース対応: ファイルパスに対応するワークスペースURIを返す
+  * 単一ワークスペースの場合は folders[0] を返す
++ * 起動直後など workspaceFolders が未ロードの場合はアクティブエディタのURIから
++ * スキーム・authorityを補完してWSL Remote環境でも正しく動作するようにする
+  */
+ function getWorkspaceUriForPath(filePath: string): vscode.Uri {
+   const folders = vscode.workspace.workspaceFolders;
+-  if (!folders || folders.length === 0) return vscode.Uri.file('/');
++  if (!folders || folders.length === 0) {
++    // workspaceFolders が未ロードの場合（起動直後のWSL Remote等）:
++    // アクティブエディタのURIからスキームとauthorityを取得して補完する
++    const activeUri = vscode.window.activeTextEditor?.document.uri;
++    if (activeUri && activeUri.scheme !== 'file') {
++      // vscode-remote://wsl+Ubuntu/... のスキーム・authorityを保持したベースURIを返す
++      return activeUri.with({ path: '/' });
++    }
++    return vscode.Uri.file('/');
++  }
+   if (folders.length === 1) return folders[0].uri;
+   const folder = folders.find(f =>
+     filePath.startsWith(f.uri.fsPath + path.sep) || filePath === f.uri.fsPath
+@@ -367,9 +460,11 @@ function resolveFileUri(filePath: string, rootPath: string, wsUri: vscode.Uri):
+   // global コマンドは相対パスを返すことがあるので、まず絶対パスに解決する
+   const absPath = path.isAbsolute(filePath) ? filePath : path.join(rootPath, filePath);
+   const rel = path.relative(rootPath, absPath);
+-  // ワークスペース内のファイルはワークスペースURIから構築（WSL Remote対応）
++  // ワークスペース内のファイルはワークスペースURIから構築
++  // vscode.Uri.joinPath でベースURIのスキームを保持（WSL Remote対応）
++  // vscode.Uri.file() を使うと file:// になり WSL Remote では開けない
+   if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+-    return vscode.Uri.file(path.join(wsUri.fsPath, rel));
++    return wsUri.with({ path: wsUri.path.replace(/\/$/, '') + '/' + rel.split(path.sep).join('/') });
+   }
+   // ワークスペース外の場合は絶対パスでfile URIを生成
+   return vscode.Uri.file(absPath);
+@@ -398,6 +493,48 @@ export function activate(context: vscode.ExtensionContext) {
+   const editorCache = new EditorCache();
+   const jumpHistory = new OptimizedHistory();
+ 
++  // 自動タグ更新の二重起動防止フラグ
++  let isAutoUpdating = false;
++
++  // ステータスバーアイテム（後で参照するため先に宣言）
++  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
++  statusBarItem.text = '$(sync) Update Gtags';
++  statusBarItem.tooltip = 'Update gtags database';
++  statusBarItem.command = 'gtags-hopper.updateTags';
++  statusBarItem.show();
++
++  // ファイル保存時に自動でタグ更新（gutentags風）
++  vscode.workspace.onDidSaveTextDocument(async (doc) => {
++    if (!configCache.get<boolean>('autoUpdateTagsOnSave', true)) { return; }
++    if (isAutoUpdating) { return; } // 二重起動防止
++
++    const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
++    if (!rootPath) { return; }
++
++    // ワークスペース外のファイルはスキップ
++    if (!doc.uri.fsPath.startsWith(rootPath)) { return; }
++
++    // GTAGS が存在しない場合はスキップ（初回は手動で作る想定）
++    const gtagsExists = await fs.access(path.join(rootPath, 'GTAGS')).then(() => true).catch(() => false);
++    if (!gtagsExists) { return; }
++
++    isAutoUpdating = true;
++    statusBarItem.text = '$(sync~spin) Updating tags...';
++
++    try {
++      await execGlobalAsync(['-u'], rootPath, 'global');
++      statusBarItem.text = '$(check) Tags updated';
++      setTimeout(() => {
++        statusBarItem.text = '$(sync) Update Gtags';
++      }, 2000);
++    } catch {
++      // 保存の邪魔をしないので失敗は無視
++      statusBarItem.text = '$(sync) Update Gtags';
++    } finally {
++      isAutoUpdating = false;
++    }
++  });
++
+   // エディタキャッシュを更新するイベントリスナー
+   const updateEditorCache = () => editorCache.update();
+   vscode.window.onDidChangeVisibleTextEditors(updateEditorCache);
+@@ -472,7 +609,6 @@ export function activate(context: vscode.ExtensionContext) {
+     items: T[],
+     placeholder: string,
+     rootPath: string,
+-    wsUri: vscode.Uri,
+     showPreview: boolean
+   ): Promise<T | null> {
+     if (!showPreview) {
+@@ -480,6 +616,7 @@ export function activate(context: vscode.ExtensionContext) {
+     }
+ 
+     let previewUri: vscode.Uri | undefined;
++    let previewWasAlreadyOpen = false;
+ 
+     return new Promise<T | null>(resolve => {
+       const qp = vscode.window.createQuickPick<T>();
+@@ -497,21 +634,32 @@ export function activate(context: vscode.ExtensionContext) {
+       qp.onDidChangeActive(async activeItems => {
+         const active = activeItems[0];
+         if (!active) return;
++        // wsUriはactive.fileから毎回計算する（panel側と同じ方式）
++        const wsUri = getWorkspaceUriForPath(active.file);
+         const uri = resolveFileUri(active.file, rootPath, wsUri);
+         previewUri = uri;
++        previewWasAlreadyOpen = vscode.window.tabGroups.all.some(g =>
++          g.tabs.some(t => t.input instanceof vscode.TabInputText &&
++            t.input.uri.toString() === uri.toString() && !t.isPreview)
++        );
+         const doc = await vscode.workspace.openTextDocument(uri);
+         const pos = new vscode.Position(active.line, 0);
+         const ed = await vscode.window.showTextDocument(doc, {
+-          viewColumn: vscode.ViewColumn.Two, preview: true, preserveFocus: true
++          viewColumn: resolveViewColumn(), preview: true, preserveFocus: true
+         });
+         ed.selection = new vscode.Selection(pos, pos);
+         ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
++        showHighlight(ed, pos);
+       });
+ 
+-      qp.onDidAccept(() => doResolve(qp.activeItems[0] ?? null));
++      qp.onDidAccept(() => {
++        clearHighlight();
++        doResolve(qp.activeItems[0] ?? null);
++      });
+ 
+       qp.onDidHide(async () => {
+-        if (previewUri) { await closeTabByUri(previewUri); }
++        clearHighlight();
++        if (previewUri && !previewWasAlreadyOpen) { await closeTabByUri(previewUri); }
+         doResolve(null);
+       });
+ 
+@@ -551,36 +699,61 @@ export function activate(context: vscode.ExtensionContext) {
+     rootPath: string;
+     onJump: (item: ResultItem) => Promise<{ uri: vscode.Uri; pos: vscode.Position } | void>;
+     restoreOnCancel?: { editor: vscode.TextEditor; position: vscode.Position };
++    autoFocus?: boolean;
++    cancelRef?: { fn?: () => void }; // ストリーミングキャンセル用
+   }) {
+-    const { symbol, title, items, rootPath, onJump, restoreOnCancel } = params;
++    const { symbol, title, items, rootPath, onJump, restoreOnCancel, autoFocus = true, cancelRef } = params;
+     let previewEditor: vscode.TextEditor | undefined;
++    let previewWasAlreadyOpen = false;
++    let previewToken = 0; // キャンセルトークン: jumpが来たらインクリメントして古いpreviewのshowHighlightを無効化
+     const prevTerminal = vscode.window.activeTerminal;
+     const showPreview = configCache.get<boolean>('showPreview', true);
+ 
+-    await vscode.commands.executeCommand('gtagsHopperResults.focus');
++    if (autoFocus) {
++      await vscode.commands.executeCommand('gtagsHopperResults.focus');
++    }
+ 
+     resultsProvider.showResults(
+       symbol,
+       items,
+       async (item: ResultItem) => {
+         if (!showPreview) return;
+-        const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(rootPath));
++        const myToken = ++previewToken; // このpreview操作のトークン
++        const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(item.file));
+         const pos = new vscode.Position(item.line, 0);
++        // プレビュー前にすでに開いているタブか確認
++        previewWasAlreadyOpen = vscode.window.tabGroups.all.some(g =>
++          g.tabs.some(t => t.input instanceof vscode.TabInputText &&
++            t.input.uri.toString() === uri.toString() && !t.isPreview)
++        );
++        const doc = await vscode.workspace.openTextDocument(uri);
++        // awaitの間にjump(clearHighlight)が来ていたらハイライトしない
++        if (myToken !== previewToken) return;
+         previewEditor = await vscode.window.showTextDocument(
+-          await vscode.workspace.openTextDocument(uri),
+-          { viewColumn: vscode.ViewColumn.Two, preview: true, preserveFocus: true }
++          doc,
++          { viewColumn: resolveViewColumn(), preview: true, preserveFocus: true }
+         );
++        if (myToken !== previewToken) return;
+         previewEditor.selection = new vscode.Selection(pos, pos);
+         previewEditor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
++        showHighlight(previewEditor, pos);
+       },
+       async (item: ResultItem) => {
++        previewToken++; // jumpが確定したのでpending previewのshowHighlightを無効化
++        clearHighlight();
+         await onJump(item);
+         resultsProvider.clearResults();
+         if (prevTerminal) { prevTerminal.show(true); }
+         await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+       },
+       async () => {
+-        if (previewEditor) { await closeTabByUri(previewEditor.document.uri); }
++        cancelRef?.fn?.(); // ストリーミング中断
++        previewToken++; // pending previewのshowHighlightを無効化
++        clearHighlight();
++        // 既存タブとして開かれていたファイルは閉じない
++        if (previewEditor && !previewWasAlreadyOpen) {
++          await closeTabByUri(previewEditor.document.uri);
++        }
+         if (restoreOnCancel) {
+           await vscode.window.showTextDocument(restoreOnCancel.editor.document, {
+             viewColumn: restoreOnCancel.editor.viewColumn, preview: false, preserveFocus: false
+@@ -593,15 +766,29 @@ export function activate(context: vscode.ExtensionContext) {
+         if (prevTerminal) { prevTerminal.show(true); }
+         await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+       },
+-      title
++      title,
++      autoFocus
+     );
+   }
+ 
++  /** 設定値から vscode.ViewColumn を解決する共通ヘルパー */
++  function resolveViewColumn(): vscode.ViewColumn {
++    const setting = configCache.get<string>('viewColumn', 'second');
++    switch (setting) {
++      case 'active': return vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.Two;
++      case 'beside': return vscode.ViewColumn.Beside;
++      case 'first':  return vscode.ViewColumn.One;
++      case 'third':  return vscode.ViewColumn.Three;
++      case 'second':
++      default:       return vscode.ViewColumn.Two;
++    }
++  }
++
+   /**
+    * 指定ファイルの指定行にジャンプして開く
+    * @param item {file, line}
+    * @param rootPath workspaceルートパス
+-   * @param isLocalFile 同じファイル内かどうか（trueの場合は強制的に右側エディタに開く）
++   * @param isLocalFile 同じファイル内かどうか（trueの場合は設定を無視してColumn.Twoに開く）
+    */
+   async function openFileAtPosition(
+     item: { file: string; line: number }, 
+@@ -613,43 +800,17 @@ export function activate(context: vscode.ExtensionContext) {
+     // エディタキャッシュを使用して高速検索
+     const existingEditor = editorCache.findByPath(filePath);
+ 
+-    // キャッシュされた設定値を使用
+-    const viewColumnSetting = configCache.get<string>('viewColumn', 'second');
+-
+-    let viewColumn: vscode.ViewColumn | undefined;
+-    
+     // 同じファイル内の場合は設定を無視して右のエディターに開く
+-    if (isLocalFile) {
+-      viewColumn = vscode.ViewColumn.Two; // 右のエディター
+-    } else {
+-      switch (viewColumnSetting) {
+-        case 'active':
+-          viewColumn = vscode.window.activeTextEditor?.viewColumn;
+-          break;
+-        case 'beside':
+-          viewColumn = vscode.ViewColumn.Beside;
+-          break;
+-        case 'first':
+-          viewColumn = vscode.ViewColumn.One;
+-          break;
+-        case 'second':
+-          viewColumn = vscode.ViewColumn.Two;
+-          break;
+-        case 'third':
+-          viewColumn = vscode.ViewColumn.Three;
+-          break;
+-        default:
+-          viewColumn = vscode.window.activeTextEditor?.viewColumn;
+-          break;
+-      }
+-    }
++    const viewColumn = isLocalFile ? vscode.ViewColumn.Two : resolveViewColumn();
+ 
+     const usePreviewTab = configCache.get<boolean>('usePreviewTab', false);
+ 
+     const pos = new vscode.Position(item.line, 0);
++    const wsUri = getWorkspaceUriForPath(filePath);
++    const fileUri = resolveFileUri(filePath, rootPath, wsUri);
+     if (existingEditor && !isLocalFile) {
+       const editor = await vscode.window.showTextDocument(existingEditor.document, {
+-        viewColumn: existingEditor.viewColumn ?? viewColumn,
++        viewColumn: viewColumn,
+         preview: usePreviewTab
+       });
+       editor.selection = new vscode.Selection(pos, pos);
+@@ -657,7 +818,7 @@ export function activate(context: vscode.ExtensionContext) {
+       return;
+     }
+ 
+-    const doc = await vscode.workspace.openTextDocument(filePath);
++    const doc = await vscode.workspace.openTextDocument(fileUri);
+     const editor = await vscode.window.showTextDocument(doc, {
+       viewColumn,
+       preserveFocus: false,
+@@ -784,10 +945,14 @@ export function activate(context: vscode.ExtensionContext) {
+             // ジャンプ実行
+             await openFileAtPosition(localItem, rootPath, isLocalFile);
+             
++            // 1件ジャンプ時はパネルをリセット
++            resultsProvider.clearResults();
++
+             // ジャンプ後、履歴に追加
+             const newEditor = vscode.window.activeTextEditor;
+             if (newEditor) {
+               addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);
++              flashHighlight(newEditor, newEditor.selection.active);
+             }
+             
+             const searchType = functionScope ? 'Function scope' : 'File-wide';
+@@ -812,7 +977,7 @@ export function activate(context: vscode.ExtensionContext) {
+       }
+ 
+       // キャッシュされた設定値を使用
+-      const multipleAction = configCache.get<string>('multipleResultAction', 'quickPick');
++      const multipleAction = configCache.get<string>('multipleResultAction', 'show');
+ 
+       if (filteredItems.length === 1 || multipleAction === 'firstMatch') {
+         // 候補1件 または firstMatch指定なら最初にジャンプ
+@@ -821,9 +986,12 @@ export function activate(context: vscode.ExtensionContext) {
+         
+         // ジャンプ実行
+         await openFileAtPosition(filteredItems[0], rootPath, isLocalFile);
++        // 1件ジャンプ時はパネルをリセット
++        resultsProvider.clearResults();
+         const newEditor = vscode.window.activeTextEditor;
+         if (newEditor) {
+           addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);
++          flashHighlight(newEditor, newEditor.selection.active);
+         }
+       } else {
+         const displayMode = configCache.get<string>('resultDisplayMode', 'panel');
+@@ -831,7 +999,7 @@ export function activate(context: vscode.ExtensionContext) {
+         if (displayMode === 'quickPick') {
+           const showPreview = configCache.get<boolean>('showPreview', true);
+           let picked: typeof filteredItems[0] | null = null;
+-          picked = await showQuickPickMaybePreview(filteredItems, `Select definition of ${symbol}`, rootPath, getWorkspaceUriForPath(rootPath), showPreview);
++          picked = await showQuickPickMaybePreview(filteredItems, `Select definition of ${symbol}`, rootPath, showPreview);
+           if (!picked) return;
+           const isLocalFile = picked.file === document.uri.fsPath;
+           await openFileAtPosition(picked, rootPath, isLocalFile);
+@@ -895,6 +1063,7 @@ export function activate(context: vscode.ExtensionContext) {
+       new vscode.Range(last.from.position, last.from.position),
+       centerBack ? vscode.TextEditorRevealType.InCenter : vscode.TextEditorRevealType.Default
+     );
++    flashHighlight(editor, last.from.position);
+   });
+ 
+   /**
+@@ -938,31 +1107,24 @@ export function activate(context: vscode.ExtensionContext) {
+       }, async (progress) => {
+         progress.report({ increment: 0, message: 'Executing global command...' });
+         const globalCmd = configCache.get<string>('gtagsCommand', '') || 'global';
+-        const globalResult = await execGlobalAsync(['-rx', symbol], rootPath, globalCmd);
+-        
+-        progress.report({ increment: 70, message: 'Processing results...' });
+-        
+-        const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
+-        if (lines.length === 0) {
+-          progress.report({ increment: 100, message: 'No references found' });
+-          return;
+-        }
+ 
+-        // パネル用アイテム作成（最適化された正規表現使用）
+-        items = lines.map(line => {
+-          const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
+-          if (!m) return null;
+-          const [, , lineNumStr, file, code] = m;
+-          const relativePath = path.relative(rootPath, file);
+-
+-          return {
+-            label: `${relativePath}:${lineNumStr}`,
+-            description: code.trim(),
+-            file,
+-            line: parseInt(lineNumStr, 10) - 1
+-          };
+-        }).filter((v): v is NonNullable<typeof v> => v !== null);
+-        
++        const { promise: refPromise } = execGlobalStreaming(['-rx', symbol], rootPath, globalCmd, (rawLines) => {
++          const parsed = rawLines.map(line => {
++            const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
++            if (!m) return null;
++            const [, , lineNumStr, file, code] = m;
++            const absFile = path.isAbsolute(file) ? file : path.join(rootPath, file);
++            return {
++              label: `${path.relative(rootPath, absFile)}:${lineNumStr}`,
++              description: code.trim(),
++              file: absFile,
++              line: parseInt(lineNumStr, 10) - 1
++            };
++          }).filter((v): v is NonNullable<typeof v> => v !== null);
++          items.push(...parsed);
++        });
++        await refPromise;
++
+         progress.report({ increment: 100, message: `Found ${items.length} references` });
+       });
+ 
+@@ -974,15 +1136,12 @@ export function activate(context: vscode.ExtensionContext) {
+       // 結果が1件の場合はdisplayModeに関わらず即ジャンプ（jumpToDefinitionと同じ挙動）
+       if (items.length === 1) {
+         const item = items[0];
+-        const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(rootPath));
+-        const ed = await vscode.window.showTextDocument(
+-          await vscode.workspace.openTextDocument(uri),
+-          { viewColumn: vscode.ViewColumn.Two, preview: false, preserveFocus: false }
+-        );
+-        const pos = new vscode.Position(item.line, 0);
+-        ed.selection = new vscode.Selection(pos, pos);
+-        ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+-        addToHistory(document.uri, position, editor.viewColumn, ed.document.uri, pos, symbol, maxHistory);
++        await openFileAtPosition(item, rootPath, false);
++        const newEditor = vscode.window.activeTextEditor;
++        if (newEditor) {
++          addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);
++          flashHighlight(newEditor, newEditor.selection.active);
++        }
+         return;
+       }
+ 
+@@ -991,30 +1150,22 @@ export function activate(context: vscode.ExtensionContext) {
+       if (displayMode === 'quickPick') {
+         const showPreview = configCache.get<boolean>('showPreview', true);
+         let picked: typeof items[0] | null = null;
+-        picked = await showQuickPickMaybePreview(items, `Select reference of ${symbol}`, rootPath, getWorkspaceUriForPath(rootPath), showPreview);
++        picked = await showQuickPickMaybePreview(items, `Select reference of ${symbol}`, rootPath, showPreview);
+         if (!picked) return;
+-        const uri = resolveFileUri(picked.file, rootPath, getWorkspaceUriForPath(rootPath));
+-        const ed = await vscode.window.showTextDocument(
+-          await vscode.workspace.openTextDocument(uri),
+-          { viewColumn: vscode.ViewColumn.Two, preserveFocus: false, preview: false }
+-        );
+-        const pos = new vscode.Position(picked.line, 0);
+-        ed.selection = new vscode.Selection(pos, pos);
+-        ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+-        addToHistory(document.uri, position, editor.viewColumn, ed.document.uri, pos, symbol, maxHistory);
++        await openFileAtPosition(picked, rootPath, false);
++        const newEditor = vscode.window.activeTextEditor;
++        if (newEditor) {
++          addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);
++        }
+       } else {
+         await showResultsInPanel({
+           symbol, title: 'References', items, rootPath,
+           onJump: async (item) => {
+-            const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(rootPath));
+-            const ed = await vscode.window.showTextDocument(
+-              await vscode.workspace.openTextDocument(uri),
+-              { viewColumn: vscode.ViewColumn.Two, preview: false, preserveFocus: false }
+-            );
+-            const pos = new vscode.Position(item.line, 0);
+-            ed.selection = new vscode.Selection(pos, pos);
+-            ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+-            addToHistory(document.uri, position, editor.viewColumn, ed.document.uri, pos, symbol, maxHistory);
++            await openFileAtPosition(item, rootPath, false);
++            const newEditor = vscode.window.activeTextEditor;
++            if (newEditor) {
++              addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);
++            }
+           },
+           restoreOnCancel: { editor, position }
+         });
+@@ -1026,8 +1177,8 @@ export function activate(context: vscode.ExtensionContext) {
+   });
+ 
+   /**
+-   * ファイル内タグ一覧コマンド
+-   * 現在のファイルにあるシンボル一覧をgtagsで取得し、ターミナルに出力
++   * ファイル内シンボル一覧コマンド
++   * 現在のファイルにあるシンボル一覧をgtagsで取得し、パネルに表示する（quickPickモード時はターミナルに出力）
+    */
+   const listSymbolsInFile = vscode.commands.registerCommand('gtags-hopper.listSymbolsInFile', async () => {
+     const editor = vscode.window.activeTextEditor;
+@@ -1047,8 +1198,8 @@ export function activate(context: vscode.ExtensionContext) {
+ 
+     try {
+       const displayMode = configCache.get<string>('resultDisplayMode', 'panel');
+-
+       const globalCmd = configCache.get<string>('gtagsCommand', '') || 'global';
++      const cancelRef: { fn?: () => void } = {};
+ 
+       if (displayMode === 'quickPick') {
+         // ターミナルに出力（従来動作）
+@@ -1056,40 +1207,50 @@ export function activate(context: vscode.ExtensionContext) {
+         terminal.show(true);
+         terminal.sendText(`${globalCmd} -fx ${escapeShellArg(filePath)}`);
+       } else {
+-        // パネルモード: globalコマンドで結果を取得してパネルに表示
+-        const globalResult = await execGlobalAsync(['-fx', filePath], rootPath, globalCmd);
+-        const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
+-
+-        if (lines.length === 0) {
+-          vscode.window.showInformationMessage('No symbols found in this file.');
+-          return;
+-        }
+-
+-        const items: ResultItem[] = lines.map(line => {
+-          const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
+-          if (!m) return null;
+-          const [, sym, lineNumStr, file, code] = m;
+-          return {
+-            label: `${sym}:${lineNumStr}`,
+-            description: code.trim(),
+-            file,
+-            line: parseInt(lineNumStr, 10) - 1
+-          };
+-        }).filter((v): v is ResultItem => v !== null);
+-
++        // パネルモード: ストリーミング表示
+         await showResultsInPanel({
+-          symbol: path.basename(filePath), title: 'Symbols', items, rootPath,
++          symbol: path.basename(filePath), title: 'Symbols', items: [], rootPath,
++          autoFocus: configCache.get<boolean>('symbolsPanelAutoFocus', false),
++          cancelRef: cancelRef,
+           onJump: async (item) => {
+-            const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(rootPath));
+-            const ed = await vscode.window.showTextDocument(
+-              await vscode.workspace.openTextDocument(uri),
+-              { viewColumn: vscode.ViewColumn.Two, preview: false, preserveFocus: false }
+-            );
+-            const pos = new vscode.Position(item.line, 0);
+-            ed.selection = new vscode.Selection(pos, pos);
+-            ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
++            const fromUri = editor.document.uri;
++            const fromPos = editor.selection.active;
++            const fromCol = editor.viewColumn;
++            await openFileAtPosition(item, rootPath, false);
++            const newEditor = vscode.window.activeTextEditor;
++            if (newEditor) {
++              const maxHistory = configCache.get<number>('maxHistory', 50);
++              addToHistory(fromUri, fromPos, fromCol, newEditor.document.uri, newEditor.selection.active, item.label, maxHistory);
++            }
++          }
++        });
++
++        let totalFound = 0;
++        const { promise, cancel } = execGlobalStreaming(['-fx', filePath], rootPath, globalCmd, (rawLines) => {
++          const items: ResultItem[] = rawLines.map(line => {
++            const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
++            if (!m) return null;
++            const [, sym, lineNumStr, file, code] = m;
++            const absFile = path.isAbsolute(file) ? file : path.join(rootPath, file);
++            return {
++              label: `${sym}:${lineNumStr}`,
++              description: code.trim(),
++              file: absFile,
++              line: parseInt(lineNumStr, 10) - 1
++            };
++          }).filter((v): v is ResultItem => v !== null);
++          if (items.length > 0) {
++            totalFound += items.length;
++            resultsProvider.appendResults(items);
+           }
+         });
++        cancelRef.fn = cancel;
++        await promise;
++
++        if (totalFound === 0) {
++          resultsProvider.clearResults();
++          vscode.window.showInformationMessage('No symbols found in this file.');
++        }
+       }
+     } catch (err) {
+       vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
+@@ -1098,7 +1259,7 @@ export function activate(context: vscode.ExtensionContext) {
+ 
+   /**
+    * 正規表現検索コマンド
+-   * 入力ボックスで正規表現を受け取りglobal grep検索をターミナルで実行
++   * 入力ボックスで正規表現を受け取り global grep 検索を実行し、パネルに結果を表示する（quickPickモード時はターミナルに出力）
+    */
+   const searchByGrep = vscode.commands.registerCommand('gtags-hopper.searchByGrep', async () => {
+     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+@@ -1107,11 +1268,13 @@ export function activate(context: vscode.ExtensionContext) {
+       return;
+     }
+ 
+-    // 現在の選択テキストを取得（空なら undefined）
++    // 選択テキスト → なければカーソル下の単語 → なければ空
+     const editor = vscode.window.activeTextEditor;
+     const selectedText = editor && !editor.selection.isEmpty
+       ? editor.document.getText(editor.selection)
+-      : undefined;
++      : editor
++        ? (() => { const r = editor.document.getWordRangeAtPosition(editor.selection.active); return r ? editor.document.getText(r) : undefined; })()
++        : undefined;
+ 
+     // 検索パターンを入力
+     const pattern = await vscode.window.showInputBox({
+@@ -1125,7 +1288,6 @@ export function activate(context: vscode.ExtensionContext) {
+     }
+ 
+     const displayMode = configCache.get<string>('resultDisplayMode', 'panel');
+-
+     const globalCmd = configCache.get<string>('gtagsCommand', '') || 'global';
+ 
+     if (displayMode === 'quickPick') {
+@@ -1134,42 +1296,53 @@ export function activate(context: vscode.ExtensionContext) {
+       terminal.show(true);
+       terminal.sendText(`${globalCmd} -gx ${escapeShellArg(pattern)}`);
+     } else {
+-      // パネルに結果を表示
++      // パネルにストリーミング表示
+       try {
+-        const globalResult = await execGlobalAsync(['-gx', pattern], rootPath, globalCmd);
+-        const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
+-
+-        if (lines.length === 0) {
+-          vscode.window.showInformationMessage(`No results found for: ${pattern}`);
+-          return;
+-        }
+-
+-        const items: ResultItem[] = lines.map(line => {
+-          const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
+-          if (!m) return null;
+-          const [, , lineNumStr, file, code] = m;
+-          const relativePath = path.relative(rootPath, file);
+-          return {
+-            label: `${relativePath}:${lineNumStr}`,
+-            description: code.trim(),
+-            file,
+-            line: parseInt(lineNumStr, 10) - 1
+-          };
+-        }).filter((v): v is ResultItem => v !== null);
+-
++        const cancelRef: { fn?: () => void } = {};
+         await showResultsInPanel({
+-          symbol: pattern, title: 'Grep', items, rootPath,
++          symbol: pattern, title: 'Grep', items: [], rootPath,
++          autoFocus: configCache.get<boolean>('grepPanelAutoFocus', false),
++          cancelRef,
+           onJump: async (item) => {
+-            const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(rootPath));
+-            const ed = await vscode.window.showTextDocument(
+-              await vscode.workspace.openTextDocument(uri),
+-              { viewColumn: vscode.ViewColumn.Two, preview: false, preserveFocus: false }
+-            );
+-            const pos = new vscode.Position(item.line, 0);
+-            ed.selection = new vscode.Selection(pos, pos);
+-            ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
++            const fromUri = editor?.document.uri;
++            const fromPos = editor?.selection.active;
++            const fromCol = editor?.viewColumn;
++            await openFileAtPosition(item, rootPath, false);
++            const newEditor = vscode.window.activeTextEditor;
++            if (newEditor && fromUri && fromPos) {
++              const maxHistory = configCache.get<number>('maxHistory', 50);
++              addToHistory(fromUri, fromPos, fromCol, newEditor.document.uri, newEditor.selection.active, item.label, maxHistory);
++            }
++          }
++        });
++
++        let totalFound = 0;
++        const { promise, cancel } = execGlobalStreaming(['-gx', pattern], rootPath, globalCmd, (rawLines) => {
++          const items: ResultItem[] = rawLines.map(line => {
++            const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
++            if (!m) return null;
++            const [, , lineNumStr, file, code] = m;
++            const absFile = path.isAbsolute(file) ? file : path.join(rootPath, file);
++            const relativePath = path.relative(rootPath, absFile);
++            return {
++              label: `${relativePath}:${lineNumStr}`,
++              description: code.trim(),
++              file: absFile,
++              line: parseInt(lineNumStr, 10) - 1
++            };
++          }).filter((v): v is ResultItem => v !== null);
++          if (items.length > 0) {
++            totalFound += items.length;
++            resultsProvider.appendResults(items);
+           }
+         });
++        cancelRef.fn = cancel;
++        await promise;
++
++        if (totalFound === 0) {
++          resultsProvider.clearResults();
++          vscode.window.showInformationMessage(`No results found for: ${pattern}`);
++        }
+       } catch (err) {
+         vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
+       }
+@@ -1227,12 +1400,6 @@ export function activate(context: vscode.ExtensionContext) {
+     const cmd = gtagsArgs ? `${gtagsCmd} ${gtagsArgs}` : gtagsCmd;
+     terminal.sendText(cmd);
+   });
+-  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+-  statusBarItem.text = '$(sync) Update Gtags';
+-  statusBarItem.tooltip = 'Update gtags database';
+-  statusBarItem.command = 'gtags-hopper.updateTags';
+-  statusBarItem.show();
+-
+   // コマンドやUIアイテムをcontextに登録
+   context.subscriptions.push(
+     jumpToDefinition,
+diff --git a/src/resultsPanel.ts b/src/resultsPanel.ts
+index fccf625..207597d 100644
+--- a/src/resultsPanel.ts
++++ b/src/resultsPanel.ts
+@@ -82,7 +82,8 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
+     onPreview: (item: ResultItem) => void,
+     onJump: (item: ResultItem) => void,
+     onCancel: () => void,
+-    title?: string
++    title?: string,
++    autoPreview?: boolean
+   ) {
+     this.onPreviewCallback = onPreview;
+     this.onJumpCallback = onJump;
+@@ -93,7 +94,11 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
+       return;
+     }
+ 
+-    this.view.webview.postMessage({ type: 'showResults', symbol, items, title });
++    this.view.webview.postMessage({ type: 'showResults', symbol, items, title, autoPreview: autoPreview !== false });
++  }
++
++  public appendResults(items: ResultItem[]) {
++    this.view?.webview.postMessage({ type: 'appendResults', items });
+   }
+ 
+   /**
+@@ -183,6 +188,8 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
+       font-weight: 500;
+       white-space: nowrap;
+       flex-shrink: 0;
++      font-family: 'Cascadia Code', 'Consolas', monospace;
++      width: var(--label-width, auto);
+     }
+     .item-sep {
+       font-size: 11px;
+@@ -212,8 +219,22 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
+     const vscode = acquireVsCodeApi();
+     let items = [];
+     let focusedIndex = -1;
++    let currentAutoPreview = true; // showResultsで設定、appendResultsで参照
+ 
+-    function render(symbol, newItems, title) {
++    // ラベル列の幅をアイテム全体の最大長（上限30ch）に合わせて更新
++    function updateLabelWidth() {
++      if (items.length === 0) return;
++      const max = Math.min(30, Math.max(...items.map(i => i.label.length)));
++      document.getElementById('resultsList').style.setProperty('--label-width', max + 'ch');
++    }
++
++    // ラベルが30文字を超える場合は左側を省略（ファイル名末尾を優先表示）
++    function truncateLabel(label, maxLen) {
++      if (label.length <= maxLen) return label;
++      return '\u2026' + label.slice(-(maxLen - 1));
++    }
++
++    function render(symbol, newItems, title, autoPreview) {
+       items = newItems;
+       focusedIndex = -1;
+ 
+@@ -228,6 +249,7 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
+         count.textContent = '';
+         empty.style.display = 'block';
+         list.style.display = 'none';
++        list.innerHTML = '';
+         return;
+       }
+ 
+@@ -241,14 +263,15 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
+             data-index="\${i}"
+             onclick="onFocus(\${i})"
+             ondblclick="onJump(\${i})">
+-          <span class="item-location">\${escapeHtml(item.label)}</span>
++          <span class="item-location" title="\${escapeHtml(item.label)}">\${escapeHtml(truncateLabel(item.label, 30))}</span>
+           <span class="item-sep">│</span>
+           <span class="item-code">\${escapeHtml(item.description)}</span>
+         </li>
+       \`).join('');
+ 
+-      // 最初のアイテムにフォーカスしてプレビュー
+-      setFocus(0, true);
++      // autoPreview=trueのときだけ最初のアイテムにフォーカスしてプレビュー
++      setFocus(0, autoPreview);
++      updateLabelWidth();
+     }
+ 
+     function setFocus(index, preview) {
+@@ -278,15 +301,17 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
+       vscode.postMessage({ type: 'jump', item: items[index] });
+     }
+ 
+-    // キーボード操作
++    // キーボード操作（上下端で循環）
+     document.addEventListener('keydown', e => {
+       if (items.length === 0) return;
+       if (e.key === 'ArrowDown') {
+         e.preventDefault();
+-        setFocus(Math.min(focusedIndex + 1, items.length - 1), true);
++        // 末尾なら先頭へ
++        setFocus(focusedIndex >= items.length - 1 ? 0 : focusedIndex + 1, true);
+       } else if (e.key === 'ArrowUp') {
+         e.preventDefault();
+-        setFocus(Math.max(focusedIndex - 1, 0), true);
++        // 先頭なら末尾へ
++        setFocus(focusedIndex <= 0 ? items.length - 1 : focusedIndex - 1, true);
+       } else if (e.key === 'Enter') {
+         onJump(focusedIndex);
+       } else if (e.key === 'Escape') {
+@@ -303,12 +328,43 @@ export class ResultsPanelProvider implements vscode.WebviewViewProvider {
+     window.addEventListener('message', event => {
+       const msg = event.data;
+       if (msg.type === 'showResults') {
+-        render(msg.symbol, msg.items, msg.title);
+-        // 結果表示後にリストへキーボードフォーカスを当てる
+-        setTimeout(() => {
+-          const list = document.getElementById('resultsList');
+-          if (list) list.focus();
+-        }, 50);
++        currentAutoPreview = msg.autoPreview !== false;
++        render(msg.symbol, msg.items, msg.title, currentAutoPreview);
++        // autoPreview=trueのときだけリストにキーボードフォーカスを当てる
++        if (currentAutoPreview) {
++          setTimeout(() => {
++            const list = document.getElementById('resultsList');
++            if (list) list.focus();
++          }, 50);
++        }
++      } else if (msg.type === 'appendResults') {
++        // ストリーミング追記
++        items = items.concat(msg.items);
++        const count = document.getElementById('headerCount');
++        const empty = document.getElementById('emptyMessage');
++        const list  = document.getElementById('resultsList');
++
++        if (count) { count.textContent = items.length + ' found'; }
++        empty.style.display = 'none';
++        list.style.display = 'block';
++
++        const fragment = msg.items.map((item, i) => {
++          const idx = items.length - msg.items.length + i;
++          return \`<li class="result-item" tabindex="0" data-index="\${idx}"
++            onclick="onFocus(\${idx})" ondblclick="onJump(\${idx})">
++            <span class="item-location" title="\${escapeHtml(item.label)}">\${escapeHtml(truncateLabel(item.label, 30))}</span>
++            <span class="item-sep">│</span>
++            <span class="item-code">\${escapeHtml(item.description)}</span>
++          </li>\`;
++        }).join('');
++        list.insertAdjacentHTML('beforeend', fragment);
++
++        // 最初のアイテム受信時にフォーカス（currentAutoPreviewがtrueなら）
++        if (items.length === msg.items.length && currentAutoPreview) {
++          setFocus(0, true);
++          setTimeout(() => { list.focus(); }, 50);
++        }
++        updateLabelWidth();
+       } else if (msg.type === 'clearResults') {
+         items = [];
+         focusedIndex = -1;

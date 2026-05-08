@@ -88,9 +88,9 @@ Default keybindings:
 
 #### Search Behavior
 - `gtags-hopper.multipleResultAction`: Action when multiple results found
-  - `quickPick`: Show selection dialog
+  - `show`: Show results in panel or dialog (depending on `resultDisplayMode`)
   - `firstMatch`: Jump to first result automatically
-  - Default: `quickPick`
+  - Default: `show`
 
 #### History Settings
 - `gtags-hopper.maxHistory`: Maximum number of jump history entries
@@ -101,10 +101,14 @@ Default keybindings:
   - Choose from `modern-dark`, `modern-light`, `colorful-dark`, `colorful-light`
   - Default: `modern-dark`
 
+#### Auto Update Settings
+- `gtags-hopper.autoUpdateTagsOnSave`: Automatically update tags on file save
+  - Default: `true`
+
 #### Terminal Settings
-- `gtags-hopper.updateTagsTerminalNew`: Create new terminal for Update Tags
-- `gtags-hopper.listSymbolsInFileTerminalNew`: Create new terminal for List Symbols
-- `gtags-hopper.searchByGrepTerminalNew`: Create new terminal for Search by Grep
+- `gtags-hopper.updateTagsTerminalNew`: Create new terminal for Update Tags and Rebuild Tags
+- `gtags-hopper.listSymbolsInFileTerminalNew`: Create new terminal for List Symbols (applies when `resultDisplayMode` is `quickPick`)
+- `gtags-hopper.searchByGrepTerminalNew`: Create new terminal for Search by Grep (applies when `resultDisplayMode` is `quickPick`)
 
 #### Gtags Settings
 - `gtags-hopper.gtagsCommand`: Path to gtags command (searches PATH if empty)
@@ -123,6 +127,10 @@ Default keybindings:
 - `gtags-hopper.showPreview`: Show a file preview when hovering over results
   - Applies to both `panel` and `quickPick` modes
   - Default: `true`
+- `gtags-hopper.symbolsPanelAutoFocus`: Auto-focus the results panel when List Symbols is executed (applies when `resultDisplayMode` is `panel`)
+  - Default: `false`
+- `gtags-hopper.grepPanelAutoFocus`: Auto-focus the results panel when Search by Grep is executed (applies when `resultDisplayMode` is `panel`)
+  - Default: `false`
 
 #### Other Settings
 - `gtags-hopper.showSearchTime`: Display search time
@@ -250,9 +258,9 @@ https://github.com/uta1214/gtags-hopper
 
 #### 検索動作
 - `gtags-hopper.multipleResultAction`: 複数結果がある場合の動作
-  - `quickPick`: 選択ダイアログを表示
+  - `show`: 結果をパネルまたはダイアログに表示（`resultDisplayMode` の設定に従う）
   - `firstMatch`: 最初の結果に自動ジャンプ
-  - デフォルト: `quickPick`
+  - デフォルト: `show`
 
 #### 履歴設定
 - `gtags-hopper.maxHistory`: ジャンプ履歴の最大保持数
@@ -263,10 +271,14 @@ https://github.com/uta1214/gtags-hopper
   - `modern-dark`, `modern-light`, `colorful-dark`, `colorful-light` から選択
   - デフォルト: `modern-dark`
 
+#### 自動更新設定
+- `gtags-hopper.autoUpdateTagsOnSave`: ファイル保存時にタグを自動更新する
+  - デフォルト: `true`
+
 #### ターミナル設定
-- `gtags-hopper.updateTagsTerminalNew`: Update Tags 用の新規ターミナル作成
-- `gtags-hopper.listSymbolsInFileTerminalNew`: List Symbols 用の新規ターミナル作成
-- `gtags-hopper.searchByGrepTerminalNew`: Search by Grep 用の新規ターミナル作成
+- `gtags-hopper.updateTagsTerminalNew`: Update Tags・Rebuild Tags 用の新規ターミナル作成
+- `gtags-hopper.listSymbolsInFileTerminalNew`: List Symbols 用の新規ターミナル作成（`resultDisplayMode` が `quickPick` のときのみ有効）
+- `gtags-hopper.searchByGrepTerminalNew`: Search by Grep 用の新規ターミナル作成（`resultDisplayMode` が `quickPick` のときのみ有効）
 
 #### Gtags 設定
 - `gtags-hopper.gtagsCommand`: gtags コマンドのパス（空の場合は PATH から検索）
@@ -285,6 +297,10 @@ https://github.com/uta1214/gtags-hopper
 - `gtags-hopper.showPreview`: 結果にフォーカスを当てたときにファイルプレビューを表示する
   - `panel`・`quickPick` 両方に適用される
   - デフォルト: `true`
+- `gtags-hopper.symbolsPanelAutoFocus`: List Symbols 実行時に結果パネルを自動でフォーカスするか（`resultDisplayMode` が `panel` のときのみ有効）
+  - デフォルト: `false`
+- `gtags-hopper.grepPanelAutoFocus`: Search by Grep 実行時に結果パネルを自動でフォーカスするか（`resultDisplayMode` が `panel` のときのみ有効）
+  - デフォルト: `false`
 
 #### その他
 - `gtags-hopper.showSearchTime`: 検索時間を表示

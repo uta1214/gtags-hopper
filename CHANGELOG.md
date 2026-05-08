@@ -2,6 +2,27 @@
 
 All notable changes to Gtags Hopper will be documented in this file.
 
+## [0.0.6] - 2026-05-02
+
+### Added
+- **Panel auto-focus settings**: New `gtags-hopper.symbolsPanelAutoFocus` and `gtags-hopper.grepPanelAutoFocus` settings to control whether the results panel receives focus automatically when List Symbols or Search by Grep is executed (default: `false`)
+- **Jump history for List Symbols and Search by Grep**: Jumping from the results panel now adds an entry to the jump history, enabling Jump Back to work from all commands
+- **Auto-update tags on save enabled by default**: `gtags-hopper.autoUpdateTagsOnSave` now defaults to `true`
+
+### Fixed
+- **Jump to References (Ctrl+Alt+R) not working**: `execGlobalStreaming` return value was not awaited correctly; fixed by properly destructuring `{ promise }` and awaiting it
+- **List Symbols panel showing overlapping content**: Previous search results remained in DOM when a new streaming search started with an empty initial list; fixed by clearing `innerHTML` on empty render
+- **WSL/Remote file open error in QuickPick mode**: File URIs were constructed using `vscode.Uri.file()` which forces the `file://` scheme, breaking WSL Remote sessions; fixed by using `Uri.with({ path: ... })` to preserve the workspace URI scheme
+- **QuickPick preview closing existing editor tabs**: `previewWasAlreadyOpen` check was missing in `showQuickPickMaybePreview`; cancelling the picker no longer closes tabs that were already open before the preview
+- **`viewColumn` setting ignored for References, Symbols, and Grep**: Jump confirmation in these commands used hardcoded `ViewColumn.Two`; all jump paths now go through `openFileAtPosition` which respects the setting
+- **`viewColumn` setting ignored for previews**: File previews shown while navigating results were also hardcoded to Column 2; now uses `resolveViewColumn()` consistently
+- **`usePreviewTab` setting ignored for References, Symbols, and Grep**: Confirmed jumps always opened normal tabs; now routed through `openFileAtPosition` which reads the setting
+- **Double-click jump leaving highlight**: Clicking an item twice sent a `preview` message (async) followed immediately by a `jump` message; a `previewToken` counter now invalidates any in-flight `showHighlight` call when a jump is confirmed
+- **`execGlobalStreaming` not escaping `globalCmd`**: The custom gtags command path was passed directly into the shell string without `escapeShellArg`, unlike `execGlobalAsync`; fixed for consistency
+
+### Changed
+- **`multipleResultAction` description updated**: Setting description now clarifies that `quickPick` shows results in the panel or dialog depending on `resultDisplayMode`, not just a dialog
+
 ## [0.0.5] - 2026-04-13
 
 ### Added

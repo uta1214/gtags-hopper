@@ -255,22 +255,13 @@ async function execGlobalAsync(args: string[], cwd: string, globalCmd: string = 
   return new Promise((resolve, reject) => {
     let stdout = '';
     let stderr = '';
-    let timedOut = false;
 
     const child = cp.spawn(userShell, ['-l', '-c', cmd], { cwd });
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill();
-      reject(new Error('global command timed out'));
-    }, 10000);
 
     child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
     child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
 
     child.on('close', (code: number | null) => {
-      if (timedOut) { return; }
-      clearTimeout(timer);
       if (code !== 0) {
         reject(new Error(`command failed: ${cmd}\n${stderr.trim()}`));
       } else {
@@ -279,7 +270,6 @@ async function execGlobalAsync(args: string[], cwd: string, globalCmd: string = 
     });
 
     child.on('error', (err: NodeJS.ErrnoException) => {
-      clearTimeout(timer);
       if (err.code === 'ENOENT') {
         reject(new Error('GNU GLOBAL (gtags) is not installed or not in PATH'));
       } else {
@@ -302,6 +292,98 @@ function escapeShellArg(arg: string): string {
  */
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * ジャンプ先の行を一瞬ハイライトする（beacon.nvim風）
+ * DecorationTypeはextension全体で1つ使い回す
+ */
+const jumpHighlightDecoration = vscode.window.createTextEditorDecorationType({
+  backgroundColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
+  isWholeLine: true,
+});
+
+// 現在ハイライト中のエディタを追跡
+let highlightedEditor: vscode.TextEditor | undefined;
+
+/** プレビュー中に常時表示するハイライト（消えない） */
+function showHighlight(editor: vscode.TextEditor, pos: vscode.Position) {
+  highlightedEditor = editor;
+  editor.setDecorations(jumpHighlightDecoration, [new vscode.Range(pos, pos)]);
+}
+
+/** ハイライトを即座に消す（確定・キャンセル時） */
+function clearHighlight() {
+  if (highlightedEditor) {
+    highlightedEditor.setDecorations(jumpHighlightDecoration, []);
+    highlightedEditor = undefined;
+  }
+}
+
+/** 1件即ジャンプ専用: 500ms だけ光らせて消える */
+function flashHighlight(editor: vscode.TextEditor, pos: vscode.Position) {
+  editor.setDecorations(jumpHighlightDecoration, [new vscode.Range(pos, pos)]);
+  setTimeout(() => {
+    editor.setDecorations(jumpHighlightDecoration, []);
+  }, 500);
+}
+
+/**
+ * globalコマンドをストリーミング実行し、行が揃うたびにコールバックを呼ぶ
+ * cancel()を呼ぶことでプロセスを中断できる
+ */
+function execGlobalStreaming(
+  args: string[],
+  cwd: string,
+  globalCmd: string = 'global',
+  onLines: (lines: string[]) => void
+): { promise: Promise<void>; cancel: () => void } {
+  const userShell = process.env.SHELL || '/bin/bash';
+  const escapedArgs = args.map(a => escapeShellArg(a)).join(' ');
+  const cmd = `${escapeShellArg(globalCmd)} ${escapedArgs}`;
+
+  let cancelled = false;
+  let childProcess: cp.ChildProcess | undefined;
+
+  const cancel = () => {
+    cancelled = true;
+    childProcess?.kill();
+  };
+
+  const promise = new Promise<void>((resolve, reject) => {
+    let buffer = '';
+
+    const child = cp.spawn(userShell, ['-l', '-c', cmd], { cwd });
+    childProcess = child;
+
+    child.stdout.on('data', (data: Buffer) => {
+      if (cancelled) { return; }
+      buffer += data.toString();
+      const parts = buffer.split('\n');
+      buffer = parts.pop() ?? '';
+      const lines = parts.filter(l => l.trim() !== '');
+      if (lines.length > 0) { onLines(lines); }
+    });
+
+    child.on('close', (code: number | null) => {
+      if (cancelled) { resolve(); return; } // キャンセル時は正常終了扱い
+      if (buffer.trim() !== '') { onLines([buffer.trim()]); }
+      if (code !== 0 && code !== null) {
+        reject(new Error(`command failed: ${cmd}`));
+      } else {
+        resolve();
+      }
+    });
+
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      if (cancelled) { resolve(); return; }
+      reject(err.code === 'ENOENT'
+        ? new Error('GNU GLOBAL (gtags) is not installed or not in PATH')
+        : err);
+    });
+  });
+
+  return { promise, cancel };
 }
 
 /**
@@ -348,10 +430,21 @@ function getTerminalForCommand(
 /**
  * マルチルートワークスペース対応: ファイルパスに対応するワークスペースURIを返す
  * 単一ワークスペースの場合は folders[0] を返す
+ * 起動直後など workspaceFolders が未ロードの場合はアクティブエディタのURIから
+ * スキーム・authorityを補完してWSL Remote環境でも正しく動作するようにする
  */
 function getWorkspaceUriForPath(filePath: string): vscode.Uri {
   const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) return vscode.Uri.file('/');
+  if (!folders || folders.length === 0) {
+    // workspaceFolders が未ロードの場合（起動直後のWSL Remote等）:
+    // アクティブエディタのURIからスキームとauthorityを取得して補完する
+    const activeUri = vscode.window.activeTextEditor?.document.uri;
+    if (activeUri && activeUri.scheme !== 'file') {
+      // vscode-remote://wsl+Ubuntu/... のスキーム・authorityを保持したベースURIを返す
+      return activeUri.with({ path: '/' });
+    }
+    return vscode.Uri.file('/');
+  }
   if (folders.length === 1) return folders[0].uri;
   const folder = folders.find(f =>
     filePath.startsWith(f.uri.fsPath + path.sep) || filePath === f.uri.fsPath
@@ -367,9 +460,11 @@ function resolveFileUri(filePath: string, rootPath: string, wsUri: vscode.Uri): 
   // global コマンドは相対パスを返すことがあるので、まず絶対パスに解決する
   const absPath = path.isAbsolute(filePath) ? filePath : path.join(rootPath, filePath);
   const rel = path.relative(rootPath, absPath);
-  // ワークスペース内のファイルはワークスペースURIから構築（WSL Remote対応）
+  // ワークスペース内のファイルはワークスペースURIから構築
+  // vscode.Uri.joinPath でベースURIのスキームを保持（WSL Remote対応）
+  // vscode.Uri.file() を使うと file:// になり WSL Remote では開けない
   if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
-    return vscode.Uri.file(path.join(wsUri.fsPath, rel));
+    return wsUri.with({ path: wsUri.path.replace(/\/$/, '') + '/' + rel.split(path.sep).join('/') });
   }
   // ワークスペース外の場合は絶対パスでfile URIを生成
   return vscode.Uri.file(absPath);
@@ -397,6 +492,48 @@ export function activate(context: vscode.ExtensionContext) {
   const configCache = new ConfigCache();
   const editorCache = new EditorCache();
   const jumpHistory = new OptimizedHistory();
+
+  // 自動タグ更新の二重起動防止フラグ
+  let isAutoUpdating = false;
+
+  // ステータスバーアイテム（後で参照するため先に宣言）
+  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBarItem.text = '$(sync) Update Gtags';
+  statusBarItem.tooltip = 'Update gtags database';
+  statusBarItem.command = 'gtags-hopper.updateTags';
+  statusBarItem.show();
+
+  // ファイル保存時に自動でタグ更新（gutentags風）
+  vscode.workspace.onDidSaveTextDocument(async (doc) => {
+    if (!configCache.get<boolean>('autoUpdateTagsOnSave', true)) { return; }
+    if (isAutoUpdating) { return; } // 二重起動防止
+
+    const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!rootPath) { return; }
+
+    // ワークスペース外のファイルはスキップ
+    if (!doc.uri.fsPath.startsWith(rootPath)) { return; }
+
+    // GTAGS が存在しない場合はスキップ（初回は手動で作る想定）
+    const gtagsExists = await fs.access(path.join(rootPath, 'GTAGS')).then(() => true).catch(() => false);
+    if (!gtagsExists) { return; }
+
+    isAutoUpdating = true;
+    statusBarItem.text = '$(sync~spin) Updating tags...';
+
+    try {
+      await execGlobalAsync(['-u'], rootPath, 'global');
+      statusBarItem.text = '$(check) Tags updated';
+      setTimeout(() => {
+        statusBarItem.text = '$(sync) Update Gtags';
+      }, 2000);
+    } catch {
+      // 保存の邪魔をしないので失敗は無視
+      statusBarItem.text = '$(sync) Update Gtags';
+    } finally {
+      isAutoUpdating = false;
+    }
+  });
 
   // エディタキャッシュを更新するイベントリスナー
   const updateEditorCache = () => editorCache.update();
@@ -472,7 +609,6 @@ export function activate(context: vscode.ExtensionContext) {
     items: T[],
     placeholder: string,
     rootPath: string,
-    wsUri: vscode.Uri,
     showPreview: boolean
   ): Promise<T | null> {
     if (!showPreview) {
@@ -480,6 +616,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     let previewUri: vscode.Uri | undefined;
+    let previewWasAlreadyOpen = false;
 
     return new Promise<T | null>(resolve => {
       const qp = vscode.window.createQuickPick<T>();
@@ -497,21 +634,32 @@ export function activate(context: vscode.ExtensionContext) {
       qp.onDidChangeActive(async activeItems => {
         const active = activeItems[0];
         if (!active) return;
+        // wsUriはactive.fileから毎回計算する（panel側と同じ方式）
+        const wsUri = getWorkspaceUriForPath(active.file);
         const uri = resolveFileUri(active.file, rootPath, wsUri);
         previewUri = uri;
+        previewWasAlreadyOpen = vscode.window.tabGroups.all.some(g =>
+          g.tabs.some(t => t.input instanceof vscode.TabInputText &&
+            t.input.uri.toString() === uri.toString() && !t.isPreview)
+        );
         const doc = await vscode.workspace.openTextDocument(uri);
         const pos = new vscode.Position(active.line, 0);
         const ed = await vscode.window.showTextDocument(doc, {
-          viewColumn: vscode.ViewColumn.Two, preview: true, preserveFocus: true
+          viewColumn: resolveViewColumn(), preview: true, preserveFocus: true
         });
         ed.selection = new vscode.Selection(pos, pos);
         ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+        showHighlight(ed, pos);
       });
 
-      qp.onDidAccept(() => doResolve(qp.activeItems[0] ?? null));
+      qp.onDidAccept(() => {
+        clearHighlight();
+        doResolve(qp.activeItems[0] ?? null);
+      });
 
       qp.onDidHide(async () => {
-        if (previewUri) { await closeTabByUri(previewUri); }
+        clearHighlight();
+        if (previewUri && !previewWasAlreadyOpen) { await closeTabByUri(previewUri); }
         doResolve(null);
       });
 
@@ -551,36 +699,61 @@ export function activate(context: vscode.ExtensionContext) {
     rootPath: string;
     onJump: (item: ResultItem) => Promise<{ uri: vscode.Uri; pos: vscode.Position } | void>;
     restoreOnCancel?: { editor: vscode.TextEditor; position: vscode.Position };
+    autoFocus?: boolean;
+    cancelRef?: { fn?: () => void }; // ストリーミングキャンセル用
   }) {
-    const { symbol, title, items, rootPath, onJump, restoreOnCancel } = params;
+    const { symbol, title, items, rootPath, onJump, restoreOnCancel, autoFocus = true, cancelRef } = params;
     let previewEditor: vscode.TextEditor | undefined;
+    let previewWasAlreadyOpen = false;
+    let previewToken = 0; // キャンセルトークン: jumpが来たらインクリメントして古いpreviewのshowHighlightを無効化
     const prevTerminal = vscode.window.activeTerminal;
     const showPreview = configCache.get<boolean>('showPreview', true);
 
-    await vscode.commands.executeCommand('gtagsHopperResults.focus');
+    if (autoFocus) {
+      await vscode.commands.executeCommand('gtagsHopperResults.focus');
+    }
 
     resultsProvider.showResults(
       symbol,
       items,
       async (item: ResultItem) => {
         if (!showPreview) return;
-        const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(rootPath));
+        const myToken = ++previewToken; // このpreview操作のトークン
+        const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(item.file));
         const pos = new vscode.Position(item.line, 0);
-        previewEditor = await vscode.window.showTextDocument(
-          await vscode.workspace.openTextDocument(uri),
-          { viewColumn: vscode.ViewColumn.Two, preview: true, preserveFocus: true }
+        // プレビュー前にすでに開いているタブか確認
+        previewWasAlreadyOpen = vscode.window.tabGroups.all.some(g =>
+          g.tabs.some(t => t.input instanceof vscode.TabInputText &&
+            t.input.uri.toString() === uri.toString() && !t.isPreview)
         );
+        const doc = await vscode.workspace.openTextDocument(uri);
+        // awaitの間にjump(clearHighlight)が来ていたらハイライトしない
+        if (myToken !== previewToken) return;
+        previewEditor = await vscode.window.showTextDocument(
+          doc,
+          { viewColumn: resolveViewColumn(), preview: true, preserveFocus: true }
+        );
+        if (myToken !== previewToken) return;
         previewEditor.selection = new vscode.Selection(pos, pos);
         previewEditor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+        showHighlight(previewEditor, pos);
       },
       async (item: ResultItem) => {
+        previewToken++; // jumpが確定したのでpending previewのshowHighlightを無効化
+        clearHighlight();
         await onJump(item);
         resultsProvider.clearResults();
         if (prevTerminal) { prevTerminal.show(true); }
         await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
       },
       async () => {
-        if (previewEditor) { await closeTabByUri(previewEditor.document.uri); }
+        cancelRef?.fn?.(); // ストリーミング中断
+        previewToken++; // pending previewのshowHighlightを無効化
+        clearHighlight();
+        // 既存タブとして開かれていたファイルは閉じない
+        if (previewEditor && !previewWasAlreadyOpen) {
+          await closeTabByUri(previewEditor.document.uri);
+        }
         if (restoreOnCancel) {
           await vscode.window.showTextDocument(restoreOnCancel.editor.document, {
             viewColumn: restoreOnCancel.editor.viewColumn, preview: false, preserveFocus: false
@@ -593,15 +766,29 @@ export function activate(context: vscode.ExtensionContext) {
         if (prevTerminal) { prevTerminal.show(true); }
         await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
       },
-      title
+      title,
+      autoFocus
     );
+  }
+
+  /** 設定値から vscode.ViewColumn を解決する共通ヘルパー */
+  function resolveViewColumn(): vscode.ViewColumn {
+    const setting = configCache.get<string>('viewColumn', 'second');
+    switch (setting) {
+      case 'active': return vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.Two;
+      case 'beside': return vscode.ViewColumn.Beside;
+      case 'first':  return vscode.ViewColumn.One;
+      case 'third':  return vscode.ViewColumn.Three;
+      case 'second':
+      default:       return vscode.ViewColumn.Two;
+    }
   }
 
   /**
    * 指定ファイルの指定行にジャンプして開く
    * @param item {file, line}
    * @param rootPath workspaceルートパス
-   * @param isLocalFile 同じファイル内かどうか（trueの場合は強制的に右側エディタに開く）
+   * @param isLocalFile 同じファイル内かどうか（trueの場合は設定を無視してColumn.Twoに開く）
    */
   async function openFileAtPosition(
     item: { file: string; line: number }, 
@@ -613,43 +800,17 @@ export function activate(context: vscode.ExtensionContext) {
     // エディタキャッシュを使用して高速検索
     const existingEditor = editorCache.findByPath(filePath);
 
-    // キャッシュされた設定値を使用
-    const viewColumnSetting = configCache.get<string>('viewColumn', 'second');
-
-    let viewColumn: vscode.ViewColumn | undefined;
-    
     // 同じファイル内の場合は設定を無視して右のエディターに開く
-    if (isLocalFile) {
-      viewColumn = vscode.ViewColumn.Two; // 右のエディター
-    } else {
-      switch (viewColumnSetting) {
-        case 'active':
-          viewColumn = vscode.window.activeTextEditor?.viewColumn;
-          break;
-        case 'beside':
-          viewColumn = vscode.ViewColumn.Beside;
-          break;
-        case 'first':
-          viewColumn = vscode.ViewColumn.One;
-          break;
-        case 'second':
-          viewColumn = vscode.ViewColumn.Two;
-          break;
-        case 'third':
-          viewColumn = vscode.ViewColumn.Three;
-          break;
-        default:
-          viewColumn = vscode.window.activeTextEditor?.viewColumn;
-          break;
-      }
-    }
+    const viewColumn = isLocalFile ? vscode.ViewColumn.Two : resolveViewColumn();
 
     const usePreviewTab = configCache.get<boolean>('usePreviewTab', false);
 
     const pos = new vscode.Position(item.line, 0);
+    const wsUri = getWorkspaceUriForPath(filePath);
+    const fileUri = resolveFileUri(filePath, rootPath, wsUri);
     if (existingEditor && !isLocalFile) {
       const editor = await vscode.window.showTextDocument(existingEditor.document, {
-        viewColumn: existingEditor.viewColumn ?? viewColumn,
+        viewColumn: viewColumn,
         preview: usePreviewTab
       });
       editor.selection = new vscode.Selection(pos, pos);
@@ -657,7 +818,7 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    const doc = await vscode.workspace.openTextDocument(filePath);
+    const doc = await vscode.workspace.openTextDocument(fileUri);
     const editor = await vscode.window.showTextDocument(doc, {
       viewColumn,
       preserveFocus: false,
@@ -788,6 +949,7 @@ export function activate(context: vscode.ExtensionContext) {
             const newEditor = vscode.window.activeTextEditor;
             if (newEditor) {
               addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);
+              flashHighlight(newEditor, newEditor.selection.active);
             }
             
             const searchType = functionScope ? 'Function scope' : 'File-wide';
@@ -812,7 +974,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       // キャッシュされた設定値を使用
-      const multipleAction = configCache.get<string>('multipleResultAction', 'quickPick');
+      const multipleAction = configCache.get<string>('multipleResultAction', 'show');
 
       if (filteredItems.length === 1 || multipleAction === 'firstMatch') {
         // 候補1件 または firstMatch指定なら最初にジャンプ
@@ -824,6 +986,7 @@ export function activate(context: vscode.ExtensionContext) {
         const newEditor = vscode.window.activeTextEditor;
         if (newEditor) {
           addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);
+          flashHighlight(newEditor, newEditor.selection.active);
         }
       } else {
         const displayMode = configCache.get<string>('resultDisplayMode', 'panel');
@@ -831,7 +994,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (displayMode === 'quickPick') {
           const showPreview = configCache.get<boolean>('showPreview', true);
           let picked: typeof filteredItems[0] | null = null;
-          picked = await showQuickPickMaybePreview(filteredItems, `Select definition of ${symbol}`, rootPath, getWorkspaceUriForPath(rootPath), showPreview);
+          picked = await showQuickPickMaybePreview(filteredItems, `Select definition of ${symbol}`, rootPath, showPreview);
           if (!picked) return;
           const isLocalFile = picked.file === document.uri.fsPath;
           await openFileAtPosition(picked, rootPath, isLocalFile);
@@ -895,6 +1058,7 @@ export function activate(context: vscode.ExtensionContext) {
       new vscode.Range(last.from.position, last.from.position),
       centerBack ? vscode.TextEditorRevealType.InCenter : vscode.TextEditorRevealType.Default
     );
+    flashHighlight(editor, last.from.position);
   });
 
   /**
@@ -938,31 +1102,24 @@ export function activate(context: vscode.ExtensionContext) {
       }, async (progress) => {
         progress.report({ increment: 0, message: 'Executing global command...' });
         const globalCmd = configCache.get<string>('gtagsCommand', '') || 'global';
-        const globalResult = await execGlobalAsync(['-rx', symbol], rootPath, globalCmd);
-        
-        progress.report({ increment: 70, message: 'Processing results...' });
-        
-        const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
-        if (lines.length === 0) {
-          progress.report({ increment: 100, message: 'No references found' });
-          return;
-        }
 
-        // パネル用アイテム作成（最適化された正規表現使用）
-        items = lines.map(line => {
-          const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
-          if (!m) return null;
-          const [, , lineNumStr, file, code] = m;
-          const relativePath = path.relative(rootPath, file);
+        const { promise: refPromise } = execGlobalStreaming(['-rx', symbol], rootPath, globalCmd, (rawLines) => {
+          const parsed = rawLines.map(line => {
+            const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
+            if (!m) return null;
+            const [, , lineNumStr, file, code] = m;
+            const absFile = path.isAbsolute(file) ? file : path.join(rootPath, file);
+            return {
+              label: `${path.relative(rootPath, absFile)}:${lineNumStr}`,
+              description: code.trim(),
+              file: absFile,
+              line: parseInt(lineNumStr, 10) - 1
+            };
+          }).filter((v): v is NonNullable<typeof v> => v !== null);
+          items.push(...parsed);
+        });
+        await refPromise;
 
-          return {
-            label: `${relativePath}:${lineNumStr}`,
-            description: code.trim(),
-            file,
-            line: parseInt(lineNumStr, 10) - 1
-          };
-        }).filter((v): v is NonNullable<typeof v> => v !== null);
-        
         progress.report({ increment: 100, message: `Found ${items.length} references` });
       });
 
@@ -974,15 +1131,12 @@ export function activate(context: vscode.ExtensionContext) {
       // 結果が1件の場合はdisplayModeに関わらず即ジャンプ（jumpToDefinitionと同じ挙動）
       if (items.length === 1) {
         const item = items[0];
-        const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(rootPath));
-        const ed = await vscode.window.showTextDocument(
-          await vscode.workspace.openTextDocument(uri),
-          { viewColumn: vscode.ViewColumn.Two, preview: false, preserveFocus: false }
-        );
-        const pos = new vscode.Position(item.line, 0);
-        ed.selection = new vscode.Selection(pos, pos);
-        ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
-        addToHistory(document.uri, position, editor.viewColumn, ed.document.uri, pos, symbol, maxHistory);
+        await openFileAtPosition(item, rootPath, false);
+        const newEditor = vscode.window.activeTextEditor;
+        if (newEditor) {
+          addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);
+          flashHighlight(newEditor, newEditor.selection.active);
+        }
         return;
       }
 
@@ -991,30 +1145,22 @@ export function activate(context: vscode.ExtensionContext) {
       if (displayMode === 'quickPick') {
         const showPreview = configCache.get<boolean>('showPreview', true);
         let picked: typeof items[0] | null = null;
-        picked = await showQuickPickMaybePreview(items, `Select reference of ${symbol}`, rootPath, getWorkspaceUriForPath(rootPath), showPreview);
+        picked = await showQuickPickMaybePreview(items, `Select reference of ${symbol}`, rootPath, showPreview);
         if (!picked) return;
-        const uri = resolveFileUri(picked.file, rootPath, getWorkspaceUriForPath(rootPath));
-        const ed = await vscode.window.showTextDocument(
-          await vscode.workspace.openTextDocument(uri),
-          { viewColumn: vscode.ViewColumn.Two, preserveFocus: false, preview: false }
-        );
-        const pos = new vscode.Position(picked.line, 0);
-        ed.selection = new vscode.Selection(pos, pos);
-        ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
-        addToHistory(document.uri, position, editor.viewColumn, ed.document.uri, pos, symbol, maxHistory);
+        await openFileAtPosition(picked, rootPath, false);
+        const newEditor = vscode.window.activeTextEditor;
+        if (newEditor) {
+          addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);
+        }
       } else {
         await showResultsInPanel({
           symbol, title: 'References', items, rootPath,
           onJump: async (item) => {
-            const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(rootPath));
-            const ed = await vscode.window.showTextDocument(
-              await vscode.workspace.openTextDocument(uri),
-              { viewColumn: vscode.ViewColumn.Two, preview: false, preserveFocus: false }
-            );
-            const pos = new vscode.Position(item.line, 0);
-            ed.selection = new vscode.Selection(pos, pos);
-            ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
-            addToHistory(document.uri, position, editor.viewColumn, ed.document.uri, pos, symbol, maxHistory);
+            await openFileAtPosition(item, rootPath, false);
+            const newEditor = vscode.window.activeTextEditor;
+            if (newEditor) {
+              addToHistory(document.uri, position, editor.viewColumn, newEditor.document.uri, newEditor.selection.active, symbol, maxHistory);
+            }
           },
           restoreOnCancel: { editor, position }
         });
@@ -1026,8 +1172,8 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   /**
-   * ファイル内タグ一覧コマンド
-   * 現在のファイルにあるシンボル一覧をgtagsで取得し、ターミナルに出力
+   * ファイル内シンボル一覧コマンド
+   * 現在のファイルにあるシンボル一覧をgtagsで取得し、パネルに表示する（quickPickモード時はターミナルに出力）
    */
   const listSymbolsInFile = vscode.commands.registerCommand('gtags-hopper.listSymbolsInFile', async () => {
     const editor = vscode.window.activeTextEditor;
@@ -1047,8 +1193,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     try {
       const displayMode = configCache.get<string>('resultDisplayMode', 'panel');
-
       const globalCmd = configCache.get<string>('gtagsCommand', '') || 'global';
+      const cancelRef: { fn?: () => void } = {};
 
       if (displayMode === 'quickPick') {
         // ターミナルに出力（従来動作）
@@ -1056,40 +1202,50 @@ export function activate(context: vscode.ExtensionContext) {
         terminal.show(true);
         terminal.sendText(`${globalCmd} -fx ${escapeShellArg(filePath)}`);
       } else {
-        // パネルモード: globalコマンドで結果を取得してパネルに表示
-        const globalResult = await execGlobalAsync(['-fx', filePath], rootPath, globalCmd);
-        const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
-
-        if (lines.length === 0) {
-          vscode.window.showInformationMessage('No symbols found in this file.');
-          return;
-        }
-
-        const items: ResultItem[] = lines.map(line => {
-          const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
-          if (!m) return null;
-          const [, sym, lineNumStr, file, code] = m;
-          return {
-            label: `${sym}:${lineNumStr}`,
-            description: code.trim(),
-            file,
-            line: parseInt(lineNumStr, 10) - 1
-          };
-        }).filter((v): v is ResultItem => v !== null);
-
+        // パネルモード: ストリーミング表示
         await showResultsInPanel({
-          symbol: path.basename(filePath), title: 'Symbols', items, rootPath,
+          symbol: path.basename(filePath), title: 'Symbols', items: [], rootPath,
+          autoFocus: configCache.get<boolean>('symbolsPanelAutoFocus', false),
+          cancelRef: cancelRef,
           onJump: async (item) => {
-            const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(rootPath));
-            const ed = await vscode.window.showTextDocument(
-              await vscode.workspace.openTextDocument(uri),
-              { viewColumn: vscode.ViewColumn.Two, preview: false, preserveFocus: false }
-            );
-            const pos = new vscode.Position(item.line, 0);
-            ed.selection = new vscode.Selection(pos, pos);
-            ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+            const fromUri = editor.document.uri;
+            const fromPos = editor.selection.active;
+            const fromCol = editor.viewColumn;
+            await openFileAtPosition(item, rootPath, false);
+            const newEditor = vscode.window.activeTextEditor;
+            if (newEditor) {
+              const maxHistory = configCache.get<number>('maxHistory', 50);
+              addToHistory(fromUri, fromPos, fromCol, newEditor.document.uri, newEditor.selection.active, item.label, maxHistory);
+            }
           }
         });
+
+        let totalFound = 0;
+        const { promise, cancel } = execGlobalStreaming(['-fx', filePath], rootPath, globalCmd, (rawLines) => {
+          const items: ResultItem[] = rawLines.map(line => {
+            const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
+            if (!m) return null;
+            const [, sym, lineNumStr, file, code] = m;
+            const absFile = path.isAbsolute(file) ? file : path.join(rootPath, file);
+            return {
+              label: `${sym}:${lineNumStr}`,
+              description: code.trim(),
+              file: absFile,
+              line: parseInt(lineNumStr, 10) - 1
+            };
+          }).filter((v): v is ResultItem => v !== null);
+          if (items.length > 0) {
+            totalFound += items.length;
+            resultsProvider.appendResults(items);
+          }
+        });
+        cancelRef.fn = cancel;
+        await promise;
+
+        if (totalFound === 0) {
+          resultsProvider.clearResults();
+          vscode.window.showInformationMessage('No symbols found in this file.');
+        }
       }
     } catch (err) {
       vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
@@ -1098,7 +1254,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   /**
    * 正規表現検索コマンド
-   * 入力ボックスで正規表現を受け取りglobal grep検索をターミナルで実行
+   * 入力ボックスで正規表現を受け取り global grep 検索を実行し、パネルに結果を表示する（quickPickモード時はターミナルに出力）
    */
   const searchByGrep = vscode.commands.registerCommand('gtags-hopper.searchByGrep', async () => {
     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -1107,11 +1263,13 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    // 現在の選択テキストを取得（空なら undefined）
+    // 選択テキスト → なければカーソル下の単語 → なければ空
     const editor = vscode.window.activeTextEditor;
     const selectedText = editor && !editor.selection.isEmpty
       ? editor.document.getText(editor.selection)
-      : undefined;
+      : editor
+        ? (() => { const r = editor.document.getWordRangeAtPosition(editor.selection.active); return r ? editor.document.getText(r) : undefined; })()
+        : undefined;
 
     // 検索パターンを入力
     const pattern = await vscode.window.showInputBox({
@@ -1125,7 +1283,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     const displayMode = configCache.get<string>('resultDisplayMode', 'panel');
-
     const globalCmd = configCache.get<string>('gtagsCommand', '') || 'global';
 
     if (displayMode === 'quickPick') {
@@ -1134,42 +1291,53 @@ export function activate(context: vscode.ExtensionContext) {
       terminal.show(true);
       terminal.sendText(`${globalCmd} -gx ${escapeShellArg(pattern)}`);
     } else {
-      // パネルに結果を表示
+      // パネルにストリーミング表示
       try {
-        const globalResult = await execGlobalAsync(['-gx', pattern], rootPath, globalCmd);
-        const lines = globalResult.trim().split('\n').filter(l => l.trim() !== '');
-
-        if (lines.length === 0) {
-          vscode.window.showInformationMessage(`No results found for: ${pattern}`);
-          return;
-        }
-
-        const items: ResultItem[] = lines.map(line => {
-          const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
-          if (!m) return null;
-          const [, , lineNumStr, file, code] = m;
-          const relativePath = path.relative(rootPath, file);
-          return {
-            label: `${relativePath}:${lineNumStr}`,
-            description: code.trim(),
-            file,
-            line: parseInt(lineNumStr, 10) - 1
-          };
-        }).filter((v): v is ResultItem => v !== null);
-
+        const cancelRef: { fn?: () => void } = {};
         await showResultsInPanel({
-          symbol: pattern, title: 'Grep', items, rootPath,
+          symbol: pattern, title: 'Grep', items: [], rootPath,
+          autoFocus: configCache.get<boolean>('grepPanelAutoFocus', false),
+          cancelRef,
           onJump: async (item) => {
-            const uri = resolveFileUri(item.file, rootPath, getWorkspaceUriForPath(rootPath));
-            const ed = await vscode.window.showTextDocument(
-              await vscode.workspace.openTextDocument(uri),
-              { viewColumn: vscode.ViewColumn.Two, preview: false, preserveFocus: false }
-            );
-            const pos = new vscode.Position(item.line, 0);
-            ed.selection = new vscode.Selection(pos, pos);
-            ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+            const fromUri = editor?.document.uri;
+            const fromPos = editor?.selection.active;
+            const fromCol = editor?.viewColumn;
+            await openFileAtPosition(item, rootPath, false);
+            const newEditor = vscode.window.activeTextEditor;
+            if (newEditor && fromUri && fromPos) {
+              const maxHistory = configCache.get<number>('maxHistory', 50);
+              addToHistory(fromUri, fromPos, fromCol, newEditor.document.uri, newEditor.selection.active, item.label, maxHistory);
+            }
           }
         });
+
+        let totalFound = 0;
+        const { promise, cancel } = execGlobalStreaming(['-gx', pattern], rootPath, globalCmd, (rawLines) => {
+          const items: ResultItem[] = rawLines.map(line => {
+            const m = line.trim().match(GLOBAL_OUTPUT_REGEX);
+            if (!m) return null;
+            const [, , lineNumStr, file, code] = m;
+            const absFile = path.isAbsolute(file) ? file : path.join(rootPath, file);
+            const relativePath = path.relative(rootPath, absFile);
+            return {
+              label: `${relativePath}:${lineNumStr}`,
+              description: code.trim(),
+              file: absFile,
+              line: parseInt(lineNumStr, 10) - 1
+            };
+          }).filter((v): v is ResultItem => v !== null);
+          if (items.length > 0) {
+            totalFound += items.length;
+            resultsProvider.appendResults(items);
+          }
+        });
+        cancelRef.fn = cancel;
+        await promise;
+
+        if (totalFound === 0) {
+          resultsProvider.clearResults();
+          vscode.window.showInformationMessage(`No results found for: ${pattern}`);
+        }
       } catch (err) {
         vscode.window.showErrorMessage(`global error: ${(err as Error).message}`);
       }
@@ -1227,12 +1395,6 @@ export function activate(context: vscode.ExtensionContext) {
     const cmd = gtagsArgs ? `${gtagsCmd} ${gtagsArgs}` : gtagsCmd;
     terminal.sendText(cmd);
   });
-  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.text = '$(sync) Update Gtags';
-  statusBarItem.tooltip = 'Update gtags database';
-  statusBarItem.command = 'gtags-hopper.updateTags';
-  statusBarItem.show();
-
   // コマンドやUIアイテムをcontextに登録
   context.subscriptions.push(
     jumpToDefinition,

@@ -3,7 +3,7 @@
   "displayName": "Gtags Hopper",
   "publisher": "uta-orange-1214",
   "description": "Jump to definitions using GNU GLOBAL (gtags) and open them in the right editor column.",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "repository": {
     "type": "git",
     "url": "https://github.com/uta1214/gtags-hopper"
@@ -91,6 +91,11 @@
       "type": "object",
       "title": "Gtags Hopper Settings",
       "properties": {
+        "gtags-hopper.autoUpdateTagsOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run 'global -u' in the background when a file is saved. Requires GTAGS to already exist. / ファイル保存時に自動で 'global -u' をバックグラウンド実行する。GTAGSが既に存在している必要がある。"
+        },
         "gtags-hopper.viewColumn": {
           "type": "string",
           "enum": ["first", "second", "third", "active", "beside"],
@@ -104,9 +109,9 @@
         },
         "gtags-hopper.multipleResultAction": {
           "type": "string",
-          "enum": ["quickPick", "firstMatch"],
-          "default": "quickPick",
-          "description": "Action when multiple search results are found. quickPick = show selection dialog, firstMatch = jump to first result automatically / 検索結果が複数ある場合の動作。quickPick = 選択ダイアログを表示、firstMatch = 最初に見つかった結果に自動ジャンプ"
+          "enum": ["show", "firstMatch"],
+          "default": "show",
+          "description": "Action when multiple search results are found. show = show results in panel or dialog (depending on resultDisplayMode), firstMatch = jump to first result automatically / 検索結果が複数ある場合の動作。show = 結果をパネルまたはダイアログに表示（resultDisplayModeの設定に従う）、firstMatch = 最初に見つかった結果に自動ジャンプ"
         },
         "gtags-hopper.maxHistory": {
           "type": "number",
@@ -121,17 +126,17 @@
         "gtags-hopper.updateTagsTerminalNew": {
           "type": "boolean",
           "default": false,
-          "description": "Whether to create a new terminal for UpdateTags command / UpdateTags コマンドで新規ターミナルを作るか"
+          "description": "Whether to create a new terminal for Update Tags and Rebuild Tags commands / Update Tags・Rebuild Tags コマンドで新規ターミナルを作るか"
         },
         "gtags-hopper.listSymbolsInFileTerminalNew": {
           "type": "boolean",
           "default": false,
-          "description": "Whether to create a new terminal for ListSymbolsInFile command / ListSymbolsInFile コマンドで新規ターミナルを作るか"
+          "description": "Whether to create a new terminal for ListSymbolsInFile command (applies when resultDisplayMode is quickPick) / ListSymbolsInFile コマンドで新規ターミナルを作るか（resultDisplayMode が quickPick のときのみ有効）"
         },
         "gtags-hopper.searchByGrepTerminalNew": {
           "type": "boolean",
           "default": false,
-          "description": "Whether to create a new terminal for SearchByGrep command / SearchByGrep コマンドで新規ターミナルを作るか"
+          "description": "Whether to create a new terminal for SearchByGrep command (applies when resultDisplayMode is quickPick) / SearchByGrep コマンドで新規ターミナルを作るか（resultDisplayMode が quickPick のときのみ有効）"
         },
         "gtags-hopper.gtagsCommand": {
           "type": "string",
@@ -179,6 +184,16 @@
             "Colorful light theme"
           ],
           "description": "Theme for the jump history panel. / ジャンプ履歴パネルのテーマ"
+        },
+        "gtags-hopper.symbolsPanelAutoFocus": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to automatically focus the results panel when List Symbols is executed (applies when resultDisplayMode is panel). / List Symbols 実行時に結果パネルを自動でフォーカスするか（resultDisplayMode が panel のときのみ有効）。"
+        },
+        "gtags-hopper.grepPanelAutoFocus": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to automatically focus the results panel when Search by Grep is executed (applies when resultDisplayMode is panel). / Search by Grep 実行時に結果パネルを自動でフォーカスするか（resultDisplayMode が panel のときのみ有効）。"
         }
       }
     }
